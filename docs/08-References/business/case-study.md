@@ -139,7 +139,7 @@ Everything is documented:
 
 - `docs/cognitive-os/` — 12 documents covering architecture, tooling, strategy
 - Project-specific docs — covering migration, Docker, databases
-- `docs/research/` — 7 documents covering 70+ tools evaluated
+- `docs/03-PoCs/research/` — 7 documents covering 70+ tools evaluated
 - `docs/mobile/` — 3 documents covering modernization
 
 All findings were saved to Engram for cross-session recovery.
@@ -248,19 +248,19 @@ For commercial purposes, the operative point is not "fast" — it is "fast under
 
 ```bash
 # Read the research foundation
-cat docs/research/multi-agent-orchestration-prior-art-2026-05-06.md
+cat docs/03-PoCs/research/multi-agent-orchestration-prior-art-2026-05-06.md
 
 # Read the gap analysis with C1-C4 constraints
-cat docs/research/orchestration-coverage-gap-analysis-2026-05-06.md
+cat docs/03-PoCs/research/orchestration-coverage-gap-analysis-2026-05-06.md
 
 # Read the canonical evaluation contract
 cat manifests/orchestration-research-evaluation.yaml
 
 # Read the ranked synthesis
-cat docs/research/orchestration-gaps/SYNTHESIS-2026-05-06.md
+cat docs/03-PoCs/research/orchestration-gaps/SYNTHESIS-2026-05-06.md
 
 # Read the implementation tracker (per-ADR slice + tier-test pendings)
-cat docs/research/orchestration-gaps/IMPLEMENTATION-CHECKLIST-2026-05-07.md
+cat docs/03-PoCs/research/orchestration-gaps/IMPLEMENTATION-CHECKLIST-2026-05-07.md
 
 # Run the substrate-consumer guardrail validator
 python3 scripts/validate_substrate_consumers.py

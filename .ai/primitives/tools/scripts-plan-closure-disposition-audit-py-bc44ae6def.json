@@ -1,32 +1,33 @@
 {
-  "canonical_source": "skills/scaffold-project/SKILL.md",
+  "canonical_source": "scripts/plan_closure_disposition_audit.py",
   "canonical_source_kind": "cos-internal",
   "contract": {
     "actions": null,
     "contract_id": null,
     "impact": null,
-    "intent": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+    "intent": "Audits plan closure disposition reports so session-backlog and plan closure cannot misread disposition-only closure as implemented work.",
     "present": false,
     "projection_fidelity": {},
     "requires": [],
     "trigger": null
   },
   "evidence": {
-    "behavior_evidence": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+    "behavior_evidence": "Audits plan closure disposition reports so session-backlog and plan closure cannot misread disposition-only closure as implemented work.",
     "evidence_commands": [
-      "python3 scripts/primitive_scope_classifier.py --project-dir . --paths skills/scaffold-project/SKILL.md"
+      "python3 -m pytest tests/unit/test_plan_closure_disposition_audit.py -q",
+      "scripts/cos-plan-closure-disposition-audit --project-dir . --json --strict"
     ],
     "metrics_file": "none"
   },
-  "family": "skill",
+  "family": "script",
   "lifecycle": {
-    "distribution": "lab",
-    "docs_claim_level": "observe",
-    "exit_behavior": "skill-procedure",
-    "governance_class": "skill-consumer-surface",
-    "lifecycle_state": "advisory",
-    "maturity": "observe",
-    "owner_adr": "ADR-314",
+    "distribution": "team",
+    "docs_claim_level": "advisory",
+    "exit_behavior": "zero-on-pass",
+    "governance_class": "plan-closure-truth-control",
+    "lifecycle_state": "candidate",
+    "maturity": "advisory",
+    "owner_adr": "ADR-328",
     "risk_class": "advisory",
     "runtime_projection": false
   },
@@ -42,9 +43,10 @@
     "contract_id": null,
     "derived_contract_warning": "Derived from lifecycle metadata; promote to manifests/primitive-contracts.yaml before claiming contract-registry governance.",
     "evidence": {
-      "behavior_evidence": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+      "behavior_evidence": "Audits plan closure disposition reports so session-backlog and plan closure cannot misread disposition-only closure as implemented work.",
       "evidence_commands": [
-        "python3 scripts/primitive_scope_classifier.py --project-dir . --paths skills/scaffold-project/SKILL.md"
+        "python3 -m pytest tests/unit/test_plan_closure_disposition_audit.py -q",
+        "scripts/cos-plan-closure-disposition-audit --project-dir . --json --strict"
       ],
       "metrics": []
     },
@@ -52,7 +54,7 @@
       "consumer_fleet": "unknown",
       "service_mode": "unsupported"
     },
-    "intent": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+    "intent": "Audits plan closure disposition reports so session-backlog and plan closure cannot misread disposition-only closure as implemented work.",
     "is_full_contract": true,
     "projection_fidelity": {
       "claude": {
@@ -65,7 +67,7 @@
         "fidelity": "documented-only",
         "surface": "derived from primitive-lifecycle metadata; not a runtime enforcement claim"
       },
-      "generic-cli": {
+      "shell": {
         "claims_runtime_enforcement": false,
         "fidelity": "documented-only",
         "surface": "derived from primitive-lifecycle metadata; not a runtime enforcement claim"
@@ -79,20 +81,22 @@
     "trigger": {
       "kind": "documented_or_on_demand",
       "projection_targets": [
-        "skills/scaffold-project/SKILL.md"
+        "scripts/plan_closure_disposition_audit.py",
+        "scripts/cos-plan-closure-disposition-audit"
       ],
       "runtime_projection": false
     }
   },
-  "portable_id": "skills/scaffold-project/SKILL.md",
+  "portable_id": "scripts/plan_closure_disposition_audit.py",
   "projection_targets": [
-    "skills/scaffold-project/SKILL.md"
+    "scripts/plan_closure_disposition_audit.py",
+    "scripts/cos-plan-closure-disposition-audit"
   ],
   "schema_version": "portable-ai-primitive.v1",
-  "source_id": "skills/scaffold-project/SKILL.md",
+  "source_id": "scripts/plan_closure_disposition_audit.py",
   "supported_harnesses": [
     "claude",
     "codex",
-    "generic-cli"
+    "shell"
   ]
 }

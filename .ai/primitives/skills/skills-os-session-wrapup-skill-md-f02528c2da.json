@@ -1,31 +1,32 @@
 {
-  "canonical_source": "skills/scaffold-project/SKILL.md",
+  "canonical_source": "skills/os-session-wrapup/SKILL.md",
   "canonical_source_kind": "cos-internal",
   "contract": {
     "actions": null,
     "contract_id": null,
     "impact": null,
-    "intent": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+    "intent": "OS maintainer session close addendum: keeps /session-wrapup portable and runs aspirational_audit only for COS primitive-surface/reality-check work.",
     "present": false,
     "projection_fidelity": {},
     "requires": [],
     "trigger": null
   },
   "evidence": {
-    "behavior_evidence": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+    "behavior_evidence": "OS maintainer session close addendum: keeps /session-wrapup portable and runs aspirational_audit only for COS primitive-surface/reality-check work.",
     "evidence_commands": [
-      "python3 scripts/primitive_scope_classifier.py --project-dir . --paths skills/scaffold-project/SKILL.md"
+      "python3 scripts/primitive_scope_classifier.py --project-dir . --paths skills/os-session-wrapup/SKILL.md",
+      "python3 -m pytest tests/hooks/test_os_session_wrapup_addendum_trigger.py"
     ],
     "metrics_file": "none"
   },
   "family": "skill",
   "lifecycle": {
-    "distribution": "lab",
-    "docs_claim_level": "observe",
+    "distribution": "maintainer",
+    "docs_claim_level": "advisory",
     "exit_behavior": "skill-procedure",
-    "governance_class": "skill-consumer-surface",
+    "governance_class": "os-skill",
     "lifecycle_state": "advisory",
-    "maturity": "observe",
+    "maturity": "advisory",
     "owner_adr": "ADR-314",
     "risk_class": "advisory",
     "runtime_projection": false
@@ -42,9 +43,10 @@
     "contract_id": null,
     "derived_contract_warning": "Derived from lifecycle metadata; promote to manifests/primitive-contracts.yaml before claiming contract-registry governance.",
     "evidence": {
-      "behavior_evidence": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+      "behavior_evidence": "OS maintainer session close addendum: keeps /session-wrapup portable and runs aspirational_audit only for COS primitive-surface/reality-check work.",
       "evidence_commands": [
-        "python3 scripts/primitive_scope_classifier.py --project-dir . --paths skills/scaffold-project/SKILL.md"
+        "python3 scripts/primitive_scope_classifier.py --project-dir . --paths skills/os-session-wrapup/SKILL.md",
+        "python3 -m pytest tests/hooks/test_os_session_wrapup_addendum_trigger.py"
       ],
       "metrics": []
     },
@@ -52,7 +54,7 @@
       "consumer_fleet": "unknown",
       "service_mode": "unsupported"
     },
-    "intent": "Manual scope calibration iteration 018: scaffolds project-local .claude rules/skills/hooks from detected-stack for adopter projects; COS source construction does not require it.",
+    "intent": "OS maintainer session close addendum: keeps /session-wrapup portable and runs aspirational_audit only for COS primitive-surface/reality-check work.",
     "is_full_contract": true,
     "projection_fidelity": {
       "claude": {
@@ -65,7 +67,7 @@
         "fidelity": "documented-only",
         "surface": "derived from primitive-lifecycle metadata; not a runtime enforcement claim"
       },
-      "generic-cli": {
+      "shell": {
         "claims_runtime_enforcement": false,
         "fidelity": "documented-only",
         "surface": "derived from primitive-lifecycle metadata; not a runtime enforcement claim"
@@ -79,20 +81,20 @@
     "trigger": {
       "kind": "documented_or_on_demand",
       "projection_targets": [
-        "skills/scaffold-project/SKILL.md"
+        "skills/os-session-wrapup/SKILL.md"
       ],
       "runtime_projection": false
     }
   },
-  "portable_id": "skills/scaffold-project/SKILL.md",
+  "portable_id": "skills/os-session-wrapup/SKILL.md",
   "projection_targets": [
-    "skills/scaffold-project/SKILL.md"
+    "skills/os-session-wrapup/SKILL.md"
   ],
   "schema_version": "portable-ai-primitive.v1",
-  "source_id": "skills/scaffold-project/SKILL.md",
+  "source_id": "skills/os-session-wrapup/SKILL.md",
   "supported_harnesses": [
     "claude",
     "codex",
-    "generic-cli"
+    "shell"
   ]
 }

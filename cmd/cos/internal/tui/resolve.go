@@ -75,9 +75,15 @@ func registrySourceForRoot(root string) string {
 		return ""
 	}
 	normalizedRoot := normalizePath(root)
+	cleanedRoot := filepath.Clean(root)
 	for _, install := range registry.Installations {
 		if install.Path == "" || install.Source == "" {
 			continue
+		}
+		// Fast path: cleaned-string equality avoids the EvalSymlinks disk I/O
+		// in normalizePath for the common exact-match case.
+		if filepath.Clean(install.Path) == cleanedRoot {
+			return install.Source
 		}
 		if normalizePath(install.Path) == normalizedRoot {
 			return install.Source

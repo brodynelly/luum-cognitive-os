@@ -47,11 +47,32 @@ type actionSpec struct {
 	Build       func(root string, opts ActionOptions) ([][]string, error)
 }
 
+// resolveActionScript locates the script backing an allowlisted action.
+// Consumer installs do not ship scripts/; fall back to the COS source repo
+// recorded in .cognitive-os/install-meta.json so operable actions work in
+// governed consumer projects, not only in the COS repo itself.
+func resolveActionScript(root string, name string) (string, error) {
+	local := filepath.Join(root, "scripts", name)
+	if fileExists(local) {
+		return local, nil
+	}
+	metaPath := filepath.Join(root, ".cognitive-os", "install-meta.json")
+	meta := readJSONMap(metaPath)
+	source, _ := meta["source"].(string)
+	if source != "" {
+		fallback := filepath.Join(source, "scripts", name)
+		if fileExists(fallback) {
+			return fallback, nil
+		}
+	}
+	return "", fmt.Errorf("scripts/%s not found in project or COS source (install-meta source=%q)", name, source)
+}
+
 var actionAllowlist = map[string]actionSpec{
 	"refresh-coverage": {
 		Description: "Refresh primitive coverage reports through scripts/cos-coverage.",
 		Build: func(root string, _ ActionOptions) ([][]string, error) {
-			script, err := resolveScript(root, "cos-coverage")
+			script, err := resolveActionScript(root, "cos-coverage")
 			if err != nil {
 				return nil, err
 			}
@@ -61,7 +82,7 @@ var actionAllowlist = map[string]actionSpec{
 	"cosd-process-once": {
 		Description: "Ask the local cosd file-queue arbiter to process one batch.",
 		Build: func(root string, _ ActionOptions) ([][]string, error) {
-			script, err := resolveScript(root, "cosd")
+			script, err := resolveActionScript(root, "cosd")
 			if err != nil {
 				return nil, err
 			}
@@ -82,7 +103,7 @@ var actionAllowlist = map[string]actionSpec{
 			if kind != "operator-request" {
 				return nil, fmt.Errorf("intent kind %q is not allowed for cosd-submit-intent; allowed kinds: operator-request", kind)
 			}
-			script, err := resolveScript(root, "cosd")
+			script, err := resolveActionScript(root, "cosd")
 			if err != nil {
 				return nil, err
 			}
@@ -100,13 +121,13 @@ var actionAllowlist = map[string]actionSpec{
 			if status == "" {
 				status = "seen"
 			}
-			script, err := resolveScript(root, "cos_agent_message.py")
+			script, err := resolveActionScript(root, "cos_agent_message.py")
 			if err != nil {
 				return nil, err
 			}
-			cmd := []string{script, "--project-dir", root, "--json", "ack", "--message-id=" + messageID, "--status=" + status}
+			cmd := []string{script, "--project-dir", root, "--json", "ack", "--message-id", messageID, "--status", status}
 			if strings.TrimSpace(opts.Note) != "" {
-				cmd = append(cmd, "--note="+opts.Note)
+				cmd = append(cmd, "--note", opts.Note)
 			}
 			return [][]string{cmd}, nil
 		},

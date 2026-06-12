@@ -104,7 +104,7 @@ DEFAULT_HOOKS = (
 ).split()
 
 DEFAULT_SKILLS = (
-    "compose-prompt exhaustive-prompt cos-status auto-refine "
+    "compose-prompt exhaustive-prompt auto-refine "
     "verification-before-completion plan-feature session-backlog resource-governor "
 ).split()
 
@@ -244,6 +244,15 @@ def detect_harness(project_root: str = ".") -> str:
     return "claude"
 
 
+# Standalone-line SCOPE marker (skill convention: marker sits on its own line
+# directly below the YAML frontmatter). Anchored on both ends so prose or
+# code-example mentions of the marker never match.
+_SKILL_SCOPE_MARKER_RE = re.compile(r"^\s*<!--\s*SCOPE:\s*([A-Za-z0-9_-]+)\s*-->\s*$")
+
+# First cell of a skills CATALOG.md table row: `| skill-name | ...`.
+_CATALOG_ROW_RE = re.compile(r"^\|\s*([A-Za-z0-9_-]+)\s*\|")
+
+
 def scope_allows(file_path: str, install_scope: str = "both") -> bool:
     """Return whether a SCOPE-tagged file belongs in the requested install surface.
 
@@ -300,6 +309,15 @@ def skill_scope_allows(skill_dir: str, install_scope: str = "both") -> bool:
     `audience:` frontmatter. Several OS-maintainer skills are user-invocable and
     historically declared `audience: both`; without marker precedence they leak
     into consumer-project installs despite `SCOPE: os-only`.
+
+    The marker scan covers the WHOLE file, not a fixed head window: SKILL.md
+    files place the marker immediately after their YAML frontmatter, which for
+    real skills lands at line ~20-35 (e.g. skills/cos-status/SKILL.md line 30).
+    A head-window scan silently missed every one of them and shipped os-only
+    skills into consumer projects. To avoid matching prose/code-example
+    mentions of the marker (e.g. skills/add-skill documents the convention),
+    only a line that consists solely of the marker counts, and the FIRST such
+    line wins.
     """
     skill_md = Path(skill_dir) / "SKILL.md"
 
@@ -316,10 +334,8 @@ def skill_scope_allows(skill_dir: str, install_scope: str = "both") -> bool:
     except OSError:
         return True
 
-    import re as _re
-
-    for line in lines[:8]:
-        match = _re.search(r"<!--\s*SCOPE:\s*([A-Za-z0-9_-]+)\s*-->", line)
+    for line in lines:
+        match = _SKILL_SCOPE_MARKER_RE.match(line)
         if not match:
             continue
         scope_marker = match.group(1).strip()
@@ -329,9 +345,21 @@ def skill_scope_allows(skill_dir: str, install_scope: str = "both") -> bool:
             return False
         return True
 
-    # Legacy fallback: extract audience/scope field from frontmatter.
+    # Legacy fallback: extract audience/scope field from the YAML frontmatter
+    # block ONLY (lines between the first `---` and the closing `---`). A
+    # whole-file scan would let body prose/code examples like `scope: os`
+    # classify a marker-less skill os-only — and the reinstall sweep would
+    # then delete it from consumer projects.
     audience = ""
+    in_frontmatter = False
     for line in lines:
+        if line.strip() == "---":
+            if in_frontmatter:
+                break  # closing delimiter — stop scanning
+            in_frontmatter = True
+            continue
+        if not in_frontmatter:
+            continue
         stripped = line.rstrip("\n")
         if stripped.startswith(("audience:", "scope:")):
             parts = stripped.split(":", 1)
@@ -478,6 +506,153 @@ def install_skill_dir(
         return "error"
 
     return "installed"
+
+
+def _remove_stale_os_only_skills(
+    skill_dest_kernel: str,
+    skill_dest_driver: str,
+    install_scope: str = "both",
+) -> list[str]:
+    """Remove previously installed skills that the scope filter excludes.
+
+    Earlier installer versions missed the `<!-- SCOPE: os-only -->` marker when
+    it sat below the YAML frontmatter and shipped OS-source-only skills into
+    consumer projects (their SKILL.md instructs agents to run scripts that only
+    exist in the COS source repo → exit 127). Reinstalling over such a project
+    deletes those directories — and their harness driver projections — so the
+    installed set always equals the filtered set.
+
+    The os-only sweep is a no-op for maintainer/self-hosting installs
+    (install_scope == "all"). A second, unconditional pass prunes dangling
+    driver symlinks that point into the cos kernel namespace: a force
+    reinstall (COGNITIVE_OS_FORCE=true) wipes `.cognitive-os/` wholesale
+    before cos_init runs, which orphans `.claude/skills/<name>` projections
+    of skills that are no longer reinstalled.
+
+    Returns the list of removed os-only skill names (sorted).
+    """
+    removed: list[str] = []
+
+    kernel_root = Path(skill_dest_kernel)
+    if install_scope != "all" and kernel_root.is_dir():
+        for installed_dir in sorted(p for p in kernel_root.iterdir() if p.is_dir()):
+            if skill_scope_allows(str(installed_dir), install_scope=install_scope):
+                continue
+            try:
+                shutil.rmtree(str(installed_dir))
+            except OSError as exc:
+                print(
+                    f"cos_init.py: could not remove os-only skill '{installed_dir.name}': {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            removed.append(installed_dir.name)
+            if skill_dest_driver:
+                # COS only ever CREATES symlink projections at driver paths
+                # (install_skill_dir). A real file or directory here is
+                # user-authored content (e.g. a customized copy of a kernel
+                # skill) and must NEVER be deleted. Only unlink a symlink
+                # whose target points into the cos kernel namespace.
+                driver_path = Path(skill_dest_driver) / installed_dir.name
+                try:
+                    if driver_path.is_symlink():
+                        try:
+                            link_target = os.readlink(str(driver_path))
+                        except OSError:
+                            link_target = ""
+                        if ".cognitive-os/skills/cos/" in link_target.replace(os.sep, "/"):
+                            driver_path.unlink()
+                except OSError as exc:
+                    print(
+                        f"cos_init.py: could not remove driver projection for '{installed_dir.name}': {exc}",
+                        file=sys.stderr,
+                    )
+
+    # Driver hygiene: prune dangling symlinks into the cos kernel namespace.
+    # Only symlinks that (a) target `.cognitive-os/skills/cos/`, (b) resolve
+    # lexically into THIS project's kernel skills dir (a user link to ANOTHER
+    # project's kernel is user-managed and never pruned), and (c) point at a
+    # missing target are touched — user-managed skills are never affected.
+    if skill_dest_driver:
+        driver_root = Path(skill_dest_driver)
+        kernel_resolved = Path(skill_dest_kernel).resolve(strict=False)
+        if driver_root.is_dir():
+            for entry in sorted(driver_root.iterdir()):
+                if not entry.is_symlink():
+                    continue
+                try:
+                    target = os.readlink(str(entry))
+                except OSError:
+                    continue
+                if ".cognitive-os/skills/cos/" not in target.replace(os.sep, "/"):
+                    continue
+                # Lexical resolution of the (possibly missing) target: an
+                # absolute target replaces entry.parent in the join, a
+                # relative one is resolved against the link's directory.
+                resolved_target = (entry.parent / target).resolve(strict=False)
+                if not resolved_target.is_relative_to(kernel_resolved):
+                    continue
+                if entry.exists():  # follows the link; True → not dangling
+                    continue
+                try:
+                    entry.unlink()
+                except OSError as exc:
+                    print(
+                        f"cos_init.py: could not prune dangling skill projection '{entry.name}': {exc}",
+                        file=sys.stderr,
+                    )
+    return removed
+
+
+def _count_installed_skills(skill_dest_kernel: str) -> int:
+    """Count installed skill dirs using the `cos status` definition.
+
+    Parity with cmd/cos/internal/cli/status_project.go::countSkillDirs: a
+    skill is a directory that (a) does not start with `_` or `.` and (b)
+    contains a SKILL.md. Plain files (e.g. CATALOG.md) and support dirs
+    (e.g. `_lib`) are not skills.
+    """
+    root = Path(skill_dest_kernel)
+    if not root.is_dir():
+        return 0
+    return sum(
+        1
+        for p in root.iterdir()
+        if p.is_dir()
+        and not p.name.startswith(("_", "."))
+        and (p / "SKILL.md").is_file()
+    )
+
+
+def _filtered_skills_catalog(
+    catalog_src: Path,
+    skills_source: Path,
+    install_scope: str = "both",
+) -> str:
+    """Return CATALOG.md content with rows for scope-filtered skills removed.
+
+    The source catalog lists every skill in the OS repo, including os-only
+    ones. The installed copy must not advertise skills that the scope filter
+    refuses to install, so table rows whose first-column name resolves to a
+    source skill directory that fails skill_scope_allows() are dropped. Rows
+    that do not resolve to a skill directory (headers, separators, retired
+    entries) are kept verbatim.
+    """
+    text = catalog_src.read_text(encoding="utf-8", errors="replace")
+    if install_scope == "all":
+        return text
+
+    kept: list[str] = []
+    for line in text.splitlines(keepends=True):
+        match = _CATALOG_ROW_RE.match(line)
+        if match:
+            skill_dir = skills_source / match.group(1)
+            if skill_dir.is_dir() and not skill_scope_allows(
+                str(skill_dir), install_scope=install_scope
+            ):
+                continue
+        kept.append(line)
+    return "".join(kept)
 
 
 # ── Internal-call dispatcher ──────────────────────────────────────────
@@ -1846,16 +2021,37 @@ def main(argv: list[str] | None = None) -> int:  # noqa: C901 — port fidelity 
                 if status == "installed":
                     skills_installed += 1
 
-        # Copy CATALOG.md with optional driver symlink projection
+        # Copy CATALOG.md with optional driver symlink projection.
+        # The installed copy is scope-filtered: rows for os-only skills are
+        # dropped so the catalog never advertises skills that the installer
+        # refuses to ship (see _filtered_skills_catalog).
         catalog_src = skills_source / "CATALOG.md"
         if catalog_src.is_file():
             catalog_kernel = Path(skill_dest_kernel) / "CATALOG.md"
-            shutil.copy2(str(catalog_src), str(catalog_kernel))
+            catalog_kernel.write_text(
+                _filtered_skills_catalog(catalog_src, skills_source, install_scope),
+                encoding="utf-8",
+            )
             if skill_dest_driver:
                 catalog_driver = Path(skill_dest_driver) / "CATALOG.md"
                 if catalog_driver.exists() or catalog_driver.is_symlink():
                     catalog_driver.unlink()
                 catalog_driver.symlink_to("../../.cognitive-os/skills/cos/CATALOG.md")
+
+    # Reinstall hygiene: remove previously installed skills that the scope
+    # filter excludes (fixes projects seeded by older installers that shipped
+    # os-only skills), then recount so skills_installed reflects what is
+    # actually on disk.
+    removed_os_only = _remove_stale_os_only_skills(
+        skill_dest_kernel, skill_dest_driver, install_scope
+    )
+    if removed_os_only:
+        print(
+            f"  Removed {len(removed_os_only)} os-only skill(s) from a previous "
+            f"install: {', '.join(removed_os_only)}"
+        )
+    if Path(skill_dest_kernel).is_dir():
+        skills_installed = _count_installed_skills(skill_dest_kernel)
 
     # ── 7. Install templates ──────────────────────────────────────────
     templates_source = cos_source / "templates"

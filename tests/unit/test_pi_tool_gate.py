@@ -41,9 +41,19 @@ class TestBashPolicy:
         for cmd in ["rm -rf /", "rm -rf ~", "rm -fr /*", ":(){:|:&};:",
                     "git push --force origin main", "chmod -R 777 /",
                     # flag-order / long-flag evasion variants (ADW fix attempt 1)
-                    "rm -r -f /", "rm --recursive --force /", "rm -f -r ~"]:
+                    "rm -r -f /", "rm --recursive --force /", "rm -f -r ~",
+                    # quote / trailing-slash bypasses (review fix)
+                    "rm -rf ~/", 'rm -rf "/"', "rm -rf $HOME/"]:
             d = gate.decide({"tool": "bash", "input": {"command": cmd}})
             assert d["block"] is True, cmd
+
+    def test_blocks_glob_into_secret_dir(self):
+        # glob/grep use pattern/glob keys, not path (review fix).
+        for desc in [
+            {"tool": "glob", "input": {"pattern": "secrets/*.yaml"}},
+            {"tool": "grep", "input": {"glob": ".env"}},
+        ]:
+            assert gate.decide(desc)["block"] is True, desc
 
     def test_blocks_secret_reference(self):
         d = gate.decide({"tool": "bash", "input": {"command": "cat .env"}})

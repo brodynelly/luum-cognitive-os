@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SCOPE: os-only
 # cos-pi-agent — pi harness gateway for `cos run-task` (ADR-336)
 #
 # Runs the pi coding agent (@earendil-works/pi-coding-agent) headlessly as the
@@ -17,7 +18,7 @@
 # Config (env or flags):
 #   COS_PI_ROLE / --role        pi persona from <agents-dir>/<role>.md (default: builder)
 #   COS_PI_AGENTS_DIR           dir holding <role>.md
-#                               (default: $HOME/github/.pi/agents, then ./.pi/agents)
+#                               (default: $HOME/.pi/agents, then ./.pi/agents)
 #   COS_PI_PROVIDER             pi --provider (default: pi's own default)
 #   COS_PI_MODEL                pi --model    (default: pi's own default)
 #   COS_PI_DRYRUN=1 / --dry-run print the resolved pi command and exit 0
@@ -31,9 +32,9 @@ DRYRUN="${COS_PI_DRYRUN:-0}"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --role) ROLE="${2:-}"; shift ;;
+    --role) [ "$#" -ge 2 ] || { echo "cos-pi-agent: --role requires a value" >&2; exit 2; }; ROLE="$2"; shift ;;
     --role=*) ROLE="${1#--role=}" ;;
-    --task) TASK="${2:-}"; shift ;;
+    --task) [ "$#" -ge 2 ] || { echo "cos-pi-agent: --task requires a value" >&2; exit 2; }; TASK="$2"; shift ;;
     --task=*) TASK="${1#--task=}" ;;
     --dry-run) DRYRUN=1 ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -56,8 +57,8 @@ fi
 # Resolve the pi persona file (optional — pi runs without it too).
 AGENTS_DIR="${COS_PI_AGENTS_DIR:-}"
 if [ -z "$AGENTS_DIR" ]; then
-  if [ -d "$HOME/github/.pi/agents" ]; then
-    AGENTS_DIR="$HOME/github/.pi/agents"
+  if [ -d "$HOME/.pi/agents" ]; then
+    AGENTS_DIR="$HOME/.pi/agents"
   elif [ -d "./.pi/agents" ]; then
     AGENTS_DIR="./.pi/agents"
   fi

@@ -13,7 +13,7 @@
 // Install: see ./README.md. Enable governance by setting COS_PI_GUARD (absolute
 // path to bin/cos-pi-guard) or COS_HOME (the COS install root).
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 
 function guardPath(): string | null {
 	if (process.env.COS_PI_GUARD) return process.env.COS_PI_GUARD;
@@ -74,8 +74,11 @@ export default function (pi: ExtensionAPI) {
 			cwd: ctx.cwd,
 		});
 		try {
-			// Fire-and-forget telemetry — must never affect pi.
-			spawnSync(guard, [], { input: descriptor, encoding: "utf8", timeout: 5000 });
+			// Fire-and-forget telemetry — async so it never blocks pi's event loop.
+			const child = spawn(guard, [], { stdio: ["pipe", "ignore", "ignore"] });
+			child.stdin?.write(descriptor);
+			child.stdin?.end();
+			child.unref();
 		} catch {
 			/* ignore telemetry faults */
 		}

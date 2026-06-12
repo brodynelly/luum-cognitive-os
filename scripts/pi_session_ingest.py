@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SCOPE: os-only
 """Ingest pi session transcripts into the canonical event stream (ADR-336).
 
 pi (``@earendil-works/pi-coding-agent``) writes one JSON event per line to
@@ -48,7 +49,6 @@ def discover_pi_home(override: Optional[str] = None) -> Optional[Path]:
     if env:
         candidates.append(Path(env))
     candidates.append(Path.home() / ".pi")
-    candidates.append(Path.home() / "github" / ".pi")
     candidates.append(Path.cwd() / ".pi")
     for cand in candidates:
         if (cand / "agent" / "sessions").is_dir():
@@ -76,7 +76,10 @@ def load_cursor(project_dir: Path) -> Dict[str, int]:
 def save_cursor(project_dir: Path, cursor: Dict[str, int]) -> None:
     path = project_dir / CURSOR_REL
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(cursor, sort_keys=True, indent=2), encoding="utf-8")
+    # Atomic write: a partially-written cursor would corrupt idempotency.
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(cursor, sort_keys=True, indent=2), encoding="utf-8")
+    tmp.replace(path)
 
 
 def ingest_file(

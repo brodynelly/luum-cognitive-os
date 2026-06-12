@@ -155,22 +155,26 @@ class PiAdapter(HarnessAdapter):
 
         if role == "assistant":
             out: List[CanonicalEvent] = []
-            for item in msg.get("content") or []:
-                if isinstance(item, dict) and item.get("type") == "toolCall":
-                    out.append(
-                        ToolUseStart(
-                            agent_id=str(
-                                item.get("id")
-                                or _hash(_safe_json(item.get("arguments") or {}))
-                            ),
-                            tool_name=str(item.get("name") or "pi_tool"),
-                            started_at=ts,
-                            tool_input_summary=_summarize(
-                                _safe_json(item.get("arguments") or {})
-                            ),
-                            session_id=session_id,
+            content = msg.get("content")
+            # A plain-text assistant response can set content to a str; iterating
+            # that would walk characters, so only iterate when it is a list.
+            if isinstance(content, list):
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "toolCall":
+                        out.append(
+                            ToolUseStart(
+                                agent_id=str(
+                                    item.get("id")
+                                    or _hash(_safe_json(item.get("arguments") or {}))
+                                ),
+                                tool_name=str(item.get("name") or "pi_tool"),
+                                started_at=ts,
+                                tool_input_summary=_summarize(
+                                    _safe_json(item.get("arguments") or {})
+                                ),
+                                session_id=session_id,
+                            )
                         )
-                    )
             usage = msg.get("usage")
             if isinstance(usage, dict):
                 out.append(

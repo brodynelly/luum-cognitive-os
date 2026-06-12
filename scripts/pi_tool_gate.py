@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SCOPE: os-only
 """COS in-process governance + live-telemetry gate for pi (ADR-336 / Vector D).
 
 The pi-side extension (``examples/pi-extension/cos-bridge.ts``) calls this gate
@@ -103,8 +104,13 @@ def _rm_hits_root(command: str) -> bool:
     )
     if not (has_recursive and has_force):
         return False
+    # Tolerate optional surrounding quotes and an optional trailing slash so
+    # `rm -rf "/"`, `rm -rf ~/`, and `rm -rf $HOME/` cannot bypass the check.
     return bool(
-        re.search(r"(?:\s|=)(?:/|~|/\*|\$HOME|\$\{HOME\})(?:\s|;|&|\||$)", command)
+        re.search(
+            r"(?:\s|=)['\"]?(?:/|~|/\*|\$HOME|\$\{HOME\})/?['\"]?(?:\s|;|&|\||$)",
+            command,
+        )
     )
 
 
@@ -139,8 +145,9 @@ def decide(descriptor: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(tool_input, dict):
         tool_input = {}
 
-    if tool in ("write", "edit", "read", "grep", "find", "ls"):
-        path = tool_input.get("path")
+    if tool in ("write", "edit", "read", "grep", "find", "ls", "glob"):
+        # pi's grep/glob/find use pattern/glob keys, not just path.
+        path = tool_input.get("path") or tool_input.get("pattern") or tool_input.get("glob")
         reason = blocked_path_reason(path)
         if reason:
             verb = "modify" if tool in ("write", "edit") else "access"

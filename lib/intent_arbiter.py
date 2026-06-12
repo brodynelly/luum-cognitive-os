@@ -1,8 +1,9 @@
 # SCOPE: os-only
 """ADR-184 intent arbitration for cosd critical-surface ownership.
 
-The arbiter is intentionally narrow in v1: it owns ADR identity intents
-(`adr-number-request` and `adr-tombstone-request`) and persists results under
+The arbiter is intentionally narrow: it owns ADR identity intents
+(`adr-number-request` and `adr-tombstone-request`) plus operator notes
+(`operator-request`, acknowledged with their note) and persists results under
 `.cognitive-os/cosd/results/`. It does not author ADR prose.
 """
 
@@ -30,7 +31,7 @@ RUNTIME_DIR = COSD_DIR / "runtime"
 ARBITRATIONS_LOG = COSD_DIR / "arbitrations.jsonl"
 
 ADR_FILE_RE = re.compile(r"^ADR-(\d{3,})-.+\.md$")
-INTENT_KINDS = {"adr-number-request", "adr-tombstone-request"}
+INTENT_KINDS = {"adr-number-request", "adr-tombstone-request", "operator-request"}
 
 
 @dataclass(frozen=True)
@@ -289,11 +290,33 @@ def decide_tombstone(project_dir: str | Path, intent: Intent) -> ArbitrationResu
     )
 
 
+def acknowledge_operator_request(intent: Intent) -> ArbitrationResult:
+    """Acknowledge an operator note submitted through the file queue."""
+
+    note = str(intent.context.get("note") or "").strip()
+    if not note:
+        return ArbitrationResult(
+            id=intent.id,
+            status="rejected",
+            decision={},
+            decided_at=utc_now_iso(),
+            reason="operator-request requires a non-empty context.note",
+        )
+    return ArbitrationResult(
+        id=intent.id,
+        status="acknowledged",
+        decision={"note": note, "session_id": intent.session_id},
+        decided_at=utc_now_iso(),
+    )
+
+
 def arbitrate_intent(project_dir: str | Path, intent: Intent) -> ArbitrationResult:
     if intent.kind == "adr-number-request":
         return grant_adr_number(project_dir, intent)
     if intent.kind == "adr-tombstone-request":
         return decide_tombstone(project_dir, intent)
+    if intent.kind == "operator-request":
+        return acknowledge_operator_request(intent)
     return ArbitrationResult(id=intent.id, status="rejected", decision={}, decided_at=utc_now_iso(), reason=f"unsupported intent kind: {intent.kind}")
 
 

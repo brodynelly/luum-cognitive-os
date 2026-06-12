@@ -3,12 +3,14 @@
 Phase 2.1: detect_harness() port from scripts/_lib/settings-driver.sh::cos_detect_harness.
 Phase 2.2: scope_allows() and skill_scope_allows() ports from scripts/cos-init.sh.
 Phase 2.3: install_rule(), install_hook(), install_skill_dir() ports from scripts/cos-init.sh.
-All tests are pure Python (no subprocess) — they test the Python logic in isolation.
+Tests are pure Python (no subprocess) except the end-to-end reinstall-sweep
+test, which runs the full installer against a temp project.
 """
 from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -280,6 +282,29 @@ class TestSkillScopeAllows:
         (skill_dir / "SKILL.md").write_text("<!-- SCOPE: both -->\n---\naudience: os-only\n---\n# Skill\n")
         assert cos_init.skill_scope_allows(str(skill_dir), install_scope="project") is True
 
+    def test_scope_field_in_body_prose_does_not_classify(self, tmp_path: Path) -> None:
+        """L-3: legacy audience/scope fallback scans the YAML frontmatter ONLY.
+
+        A body line like `scope: os` (e.g. inside a code example) must not
+        classify a marker-less skill os-only — the reinstall sweep would then
+        delete it from consumer projects."""
+        skill_dir = tmp_path / "skill-body-scope"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: doc-skill\n---\n# Skill\n\nExample config:\n\n"
+            "scope: os\naudience: os-only\n"
+        )
+        assert cos_init.skill_scope_allows(str(skill_dir), install_scope="both") is True
+
+    def test_scope_field_in_frontmatter_still_classifies(self, tmp_path: Path) -> None:
+        """L-3 guard: the frontmatter-only restriction keeps parsing real fields."""
+        skill_dir = tmp_path / "skill-fm-scope"
+        skill_dir.mkdir()
+        (skill_dir / "SKILL.md").write_text(
+            "---\nname: x\nscope: os-only\n---\n# Skill\n"
+        )
+        assert cos_init.skill_scope_allows(str(skill_dir), install_scope="both") is False
+
 
 # ── Phase 2.3: install_rule() unit tests ─────────────────────────────
 
@@ -520,6 +545,298 @@ class TestInstallSkillDir:
         assert (kernel / "agent-dashboard" / "extra.md").is_file()
 
 
+# ── os-only marker below frontmatter + reinstall cleanup + catalog filter ──
+
+class TestSkillScopeMarkerBelowFrontmatter:
+    """The SCOPE marker sits below the YAML frontmatter in real skills
+    (e.g. skills/cos-status/SKILL.md line ~30). A head-window scan missed it
+    and shipped os-only skills into consumer projects."""
+
+    def _make_skill(self, root: Path, name: str, body: str) -> Path:
+        skill_dir = root / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(body)
+        return skill_dir
+
+    def test_marker_below_long_frontmatter_blocked(self, tmp_path: Path) -> None:
+        """os-only marker after 25 frontmatter lines is honored."""
+        frontmatter = "\n".join(f"key{i}: value{i}" for i in range(25))
+        body = f"---\nname: cos-status\naudience: both\n{frontmatter}\n---\n\n<!-- SCOPE: os-only -->\n\n# Skill\n"
+        skill_dir = self._make_skill(tmp_path, "cos-status", body)
+        assert cos_init.skill_scope_allows(str(skill_dir), install_scope="both") is False
+
+    def test_real_cos_status_skill_blocked(self) -> None:
+        """The actual skills/cos-status (verified in-the-wild leak) is filtered."""
+        skill_dir = PROJECT_ROOT / "skills" / "cos-status"
+        if not (skill_dir / "SKILL.md").is_file():
+            pytest.skip("skills/cos-status not present")
+        assert cos_init.skill_scope_allows(str(skill_dir), install_scope="both") is False
+
+    def test_prose_mention_of_marker_not_treated_as_marker(self, tmp_path: Path) -> None:
+        """A mid-line mention (documentation prose) must not filter the skill."""
+        body = (
+            "---\nname: doc-skill\naudience: both\n---\n\n<!-- SCOPE: both -->\n\n"
+            "# Skill\nUse the `<!-- SCOPE: os-only -->` marker to keep a skill internal.\n"
+        )
+        skill_dir = self._make_skill(tmp_path, "doc-skill", body)
+        assert cos_init.skill_scope_allows(str(skill_dir), install_scope="both") is True
+
+    def test_first_standalone_marker_wins(self, tmp_path: Path) -> None:
+        """A code-example standalone marker later in the file does not override
+        the skill's own marker (mirrors skills/add-rule)."""
+        body = (
+            "---\nname: add-rule-like\n---\n\n<!-- SCOPE: os-only -->\n\n# Skill\n"
+            "Example template:\n\n<!-- SCOPE: both -->\n"
+        )
+        skill_dir = self._make_skill(tmp_path, "add-rule-like", body)
+        assert cos_init.skill_scope_allows(str(skill_dir), install_scope="both") is False
+
+    def test_install_scope_all_keeps_os_only_marker_skill(self, tmp_path: Path) -> None:
+        body = "---\nname: x\n---\n<!-- SCOPE: os-only -->\n# Skill\n"
+        skill_dir = self._make_skill(tmp_path, "x", body)
+        assert cos_init.skill_scope_allows(str(skill_dir), install_scope="all") is True
+
+
+class TestRemoveStaleOsOnlySkills:
+    """Reinstall over a project seeded by an older installer removes os-only skills."""
+
+    def _seed_installed_skill(self, kernel: Path, driver: Path, name: str, body: str) -> None:
+        skill = kernel / name
+        skill.mkdir(parents=True, exist_ok=True)
+        (skill / "SKILL.md").write_text(body)
+        driver.mkdir(parents=True, exist_ok=True)
+        (driver / name).symlink_to(f"../../.cognitive-os/skills/cos/{name}")
+
+    def test_removes_os_only_skill_and_driver_symlink(self, tmp_path: Path) -> None:
+        kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / ".claude" / "skills"
+        self._seed_installed_skill(
+            kernel, driver, "cos-status",
+            "---\nname: cos-status\naudience: both\n---\n<!-- SCOPE: os-only -->\n# Skill\n",
+        )
+        self._seed_installed_skill(
+            kernel, driver, "compose-prompt",
+            "---\nname: compose-prompt\naudience: both\n---\n<!-- SCOPE: both -->\n# Skill\n",
+        )
+        removed = cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert removed == ["cos-status"]
+        assert not (kernel / "cos-status").exists()
+        assert not (driver / "cos-status").is_symlink()
+        assert (kernel / "compose-prompt" / "SKILL.md").is_file()
+        assert (driver / "compose-prompt").is_symlink()
+
+    def test_idempotent_second_run_removes_nothing(self, tmp_path: Path) -> None:
+        kernel = tmp_path / "kernel"
+        driver = tmp_path / "driver"
+        self._seed_installed_skill(
+            kernel, driver, "victim",
+            "---\nname: victim\n---\n<!-- SCOPE: os-only -->\n# Skill\n",
+        )
+        assert cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both") == ["victim"]
+        assert cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both") == []
+
+    def test_install_scope_all_is_noop(self, tmp_path: Path) -> None:
+        kernel = tmp_path / "kernel"
+        driver = tmp_path / "driver"
+        self._seed_installed_skill(
+            kernel, driver, "os-skill",
+            "---\nname: os-skill\n---\n<!-- SCOPE: os-only -->\n# Skill\n",
+        )
+        assert cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "all") == []
+        assert (kernel / "os-skill").is_dir()
+
+    def test_missing_kernel_dir_is_noop(self, tmp_path: Path) -> None:
+        assert cos_init._remove_stale_os_only_skills(str(tmp_path / "nope"), "", "both") == []
+
+    def test_prunes_dangling_driver_symlink_after_force_wipe(self, tmp_path: Path) -> None:
+        """COGNITIVE_OS_FORCE=true wipes .cognitive-os before cos_init runs,
+        orphaning .claude/skills symlinks of skills no longer reinstalled."""
+        kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / ".claude" / "skills"
+        kernel.mkdir(parents=True)
+        driver.mkdir(parents=True)
+        # Dangling cos-namespace symlink (kernel dir was force-wiped).
+        (driver / "fake-os-skill").symlink_to("../../.cognitive-os/skills/cos/fake-os-skill")
+        # Healthy cos-namespace symlink.
+        live = kernel / "compose-prompt"
+        live.mkdir()
+        (live / "SKILL.md").write_text("---\nname: compose-prompt\n---\n<!-- SCOPE: both -->\n# S\n")
+        (driver / "compose-prompt").symlink_to("../../.cognitive-os/skills/cos/compose-prompt")
+        # User-managed dangling symlink OUTSIDE the cos namespace — untouched.
+        (driver / "my-own").symlink_to("../../somewhere/else")
+        cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert not (driver / "fake-os-skill").is_symlink()
+        assert (driver / "compose-prompt").is_symlink()
+        assert (driver / "my-own").is_symlink()
+
+    # ── B-1: driver projections are removed ONLY when they are COS symlinks ──
+
+    _OS_ONLY_BODY = "---\nname: fake-os-skill\n---\n<!-- SCOPE: os-only -->\n# Skill\n"
+
+    def _seed_stale_kernel_skill(self, kernel: Path, name: str = "fake-os-skill") -> Path:
+        skill = kernel / name
+        skill.mkdir(parents=True, exist_ok=True)
+        (skill / "SKILL.md").write_text(self._OS_ONLY_BODY)
+        return skill
+
+    def test_real_user_dir_at_driver_path_survives(self, tmp_path: Path) -> None:
+        """B-1(a): a REAL directory at .claude/skills/<stale-name> is
+        user-authored (COS only ever creates symlinks there) — it survives
+        the reinstall sweep while the stale kernel dir is removed."""
+        kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / ".claude" / "skills"
+        stale = self._seed_stale_kernel_skill(kernel)
+        user_dir = driver / "fake-os-skill"
+        user_dir.mkdir(parents=True)
+        (user_dir / "SKILL.md").write_text("# My customized copy\n")
+        removed = cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert removed == ["fake-os-skill"]
+        assert not stale.exists()
+        assert user_dir.is_dir()
+        assert (user_dir / "SKILL.md").read_text() == "# My customized copy\n"
+
+    def test_real_user_file_at_driver_path_survives(self, tmp_path: Path) -> None:
+        """B-1(b): a REAL file at the driver path is user content — never deleted."""
+        kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / ".claude" / "skills"
+        stale = self._seed_stale_kernel_skill(kernel)
+        driver.mkdir(parents=True)
+        user_file = driver / "fake-os-skill"
+        user_file.write_text("user notes\n")
+        removed = cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert removed == ["fake-os-skill"]
+        assert not stale.exists()
+        assert user_file.is_file()
+        assert user_file.read_text() == "user notes\n"
+
+    def test_cos_symlink_projection_is_still_removed(self, tmp_path: Path) -> None:
+        """B-1(c): the legitimate COS symlink projection is still cleaned up."""
+        kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / ".claude" / "skills"
+        stale = self._seed_stale_kernel_skill(kernel)
+        driver.mkdir(parents=True)
+        (driver / "fake-os-skill").symlink_to("../../.cognitive-os/skills/cos/fake-os-skill")
+        removed = cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert removed == ["fake-os-skill"]
+        assert not stale.exists()
+        assert not (driver / "fake-os-skill").is_symlink()
+        assert not (driver / "fake-os-skill").exists()
+
+    def test_user_symlink_to_non_cos_target_survives(self, tmp_path: Path) -> None:
+        """B-1: a user symlink at the stale name pointing OUTSIDE the cos
+        kernel namespace is not unlinked."""
+        kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / ".claude" / "skills"
+        self._seed_stale_kernel_skill(kernel)
+        driver.mkdir(parents=True)
+        (driver / "fake-os-skill").symlink_to("../../my-skills/fake-os-skill")
+        removed = cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert removed == ["fake-os-skill"]
+        assert (driver / "fake-os-skill").is_symlink()
+
+    # ── L-2: dangling prune only touches links into THIS project's kernel ──
+
+    def test_dangling_link_to_other_projects_kernel_survives(self, tmp_path: Path) -> None:
+        """L-2: a dangling user link whose target contains the cos namespace
+        substring but resolves into ANOTHER project's kernel is never pruned."""
+        kernel = tmp_path / "proj" / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / "proj" / ".claude" / "skills"
+        kernel.mkdir(parents=True)
+        driver.mkdir(parents=True)
+        other_target = tmp_path / "other-project" / ".cognitive-os" / "skills" / "cos" / "foo"
+        (driver / "foo").symlink_to(str(other_target))  # dangling — never created
+        relative_other = "../../../other-project/.cognitive-os/skills/cos/bar"
+        (driver / "bar").symlink_to(relative_other)  # dangling, relative, other project
+        cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert (driver / "foo").is_symlink()
+        assert (driver / "bar").is_symlink()
+
+    def test_dangling_link_to_this_projects_kernel_is_pruned(self, tmp_path: Path) -> None:
+        """L-2: a dangling link resolving into THIS project's kernel is pruned."""
+        kernel = tmp_path / "proj" / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / "proj" / ".claude" / "skills"
+        kernel.mkdir(parents=True)
+        driver.mkdir(parents=True)
+        (driver / "gone").symlink_to("../../.cognitive-os/skills/cos/gone")
+        cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert not (driver / "gone").is_symlink()
+        assert not (driver / "gone").exists()
+
+    def test_body_prose_scope_is_not_swept(self, tmp_path: Path) -> None:
+        """L-3 x sweep: a marker-less skill with `scope: os` in body prose is
+        NOT classified os-only and survives the reinstall sweep."""
+        kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+        driver = tmp_path / ".claude" / "skills"
+        skill = kernel / "doc-skill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\nname: doc-skill\n---\n# Skill\n\nExample:\n\nscope: os\n"
+        )
+        driver.mkdir(parents=True)
+        (driver / "doc-skill").symlink_to("../../.cognitive-os/skills/cos/doc-skill")
+        removed = cos_init._remove_stale_os_only_skills(str(kernel), str(driver), "both")
+        assert removed == []
+        assert (skill / "SKILL.md").is_file()
+        assert (driver / "doc-skill").is_symlink()
+
+
+class TestCountInstalledSkills:
+    """M-1: skills_installed recount parity with cmd/cos countSkillDirs."""
+
+    def test_counts_only_skill_md_bearing_visible_dirs(self, tmp_path: Path) -> None:
+        kernel = tmp_path / "kernel"
+        for name in ("alpha", "beta"):
+            d = kernel / name
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text("# S\n")
+        (kernel / "no-skill-md").mkdir()  # dir without SKILL.md — not counted
+        lib_dir = kernel / "_lib"
+        lib_dir.mkdir()
+        (lib_dir / "SKILL.md").write_text("# S\n")  # underscore prefix — not counted
+        hidden = kernel / ".hidden"
+        hidden.mkdir()
+        (hidden / "SKILL.md").write_text("# S\n")  # dot prefix — not counted
+        (kernel / "CATALOG.md").write_text("# Catalog\n")  # plain file — not counted
+        assert cos_init._count_installed_skills(str(kernel)) == 2
+
+    def test_missing_root_is_zero(self, tmp_path: Path) -> None:
+        assert cos_init._count_installed_skills(str(tmp_path / "nope")) == 0
+
+
+class TestFilteredSkillsCatalog:
+    """Installed CATALOG.md must not advertise scope-filtered skills."""
+
+    def test_os_only_row_dropped_others_kept(self, tmp_path: Path) -> None:
+        skills_src = tmp_path / "skills"
+        for name, scope in (("cos-status", "os-only"), ("compose-prompt", "both")):
+            d = skills_src / name
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(f"---\nname: {name}\n---\n<!-- SCOPE: {scope} -->\n# S\n")
+        catalog = skills_src / "CATALOG.md"
+        catalog.write_text(
+            "<!-- SCOPE: both -->\n# Catalog\n\n"
+            "| Skill | Description |\n|-------|-------------|\n"
+            "| cos-status | OS status |\n| compose-prompt | Compose |\n"
+            "| retired-skill | No dir on disk |\n"
+        )
+        out = cos_init._filtered_skills_catalog(catalog, skills_src, "both")
+        assert "| cos-status |" not in out
+        assert "| compose-prompt |" in out
+        assert "| retired-skill |" in out  # no source dir → kept verbatim
+        assert "| Skill | Description |" in out  # header kept
+        assert "|-------|" in out  # separator kept
+
+    def test_install_scope_all_copies_verbatim(self, tmp_path: Path) -> None:
+        skills_src = tmp_path / "skills"
+        d = skills_src / "cos-status"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text("---\nname: cos-status\n---\n<!-- SCOPE: os-only -->\n# S\n")
+        catalog = skills_src / "CATALOG.md"
+        text = "# Catalog\n| cos-status | OS status |\n"
+        catalog.write_text(text)
+        assert cos_init._filtered_skills_catalog(catalog, skills_src, "all") == text
+
+
 # ── Template scope filtering (component-scope-classification DoD items 1 + 3) ──
 
 class TestTemplateInstallScopeFilter:
@@ -659,3 +976,57 @@ def test_install_provenance_scan_guardrail_copies_project_policy_and_bin(tmp_pat
     assert wrapper.stat().st_mode & 0o111
     assert (project / ".cognitive-os" / "bin" / "provenance_scan.py").exists()
     assert (project / ".cognitive-os" / "provenance-scan.yaml").read_text(encoding="utf-8").startswith("schema_version")
+
+
+# ── End-to-end: reinstall sweep never deletes user content (B-1 + M-1) ──
+
+def test_e2e_reinstall_removes_stale_kernel_skill_but_keeps_user_dir(tmp_path: Path) -> None:
+    """Full cos-init run over a seeded project (force-reinstall scenario):
+
+    - `.cognitive-os/skills/cos/fake-os-skill/` (os-only marker) → removed
+    - REAL user dir `.claude/skills/fake-os-skill/` with a file → intact
+    - install-meta skills_installed matches the SKILL.md-bearing dir count (M-1)
+    """
+    cos_status_default = "cos-status" in cos_init.DEFAULT_SKILLS
+    assert cos_status_default is False  # L-1: dead default entry removed
+
+    kernel = tmp_path / ".cognitive-os" / "skills" / "cos"
+    stale = kernel / "fake-os-skill"
+    stale.mkdir(parents=True)
+    (stale / "SKILL.md").write_text(
+        "---\nname: fake-os-skill\n---\n<!-- SCOPE: os-only -->\n# Skill\n"
+    )
+    user_dir = tmp_path / ".claude" / "skills" / "fake-os-skill"
+    user_dir.mkdir(parents=True)
+    (user_dir / "SKILL.md").write_text("# My customized copy\n")
+
+    env = dict(os.environ)
+    env["COGNITIVE_OS_FORCE"] = "true"
+    env.pop("COS_INSTALL_SCOPE", None)
+    result = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "scripts" / "cos_init.py"), "--default", "--harness", "claude"],
+        cwd=tmp_path,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr + result.stdout
+
+    # Stale os-only kernel skill removed by the sweep.
+    assert not stale.exists()
+    # User-authored real directory at the driver path survives, file intact.
+    assert user_dir.is_dir()
+    assert (user_dir / "SKILL.md").read_text() == "# My customized copy\n"
+
+    # M-1: reported count uses the cos-status definition (SKILL.md-bearing,
+    # non-underscore, non-dot dirs only).
+    install_meta = json.loads((tmp_path / ".cognitive-os" / "install-meta.json").read_text())
+    expected = sum(
+        1
+        for p in kernel.iterdir()
+        if p.is_dir() and not p.name.startswith(("_", ".")) and (p / "SKILL.md").is_file()
+    )
+    assert install_meta["skills_installed"] == expected
+    assert expected > 0

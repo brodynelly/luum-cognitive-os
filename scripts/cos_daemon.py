@@ -418,13 +418,14 @@ def build_parser() -> argparse.ArgumentParser:
     once.add_argument("--limit", type=int)
 
     submit = subparsers.add_parser("submit-intent")
-    submit.add_argument("--kind", required=True, choices=("adr-number-request", "adr-tombstone-request"))
+    submit.add_argument("--kind", required=True, choices=("adr-number-request", "adr-tombstone-request", "operator-request"))
     submit.add_argument("--intent-id")
     submit.add_argument("--session-id", default=os.environ.get("COGNITIVE_OS_SESSION_ID") or os.environ.get("CODEX_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID") or "manual")
     submit.add_argument("--topic")
     submit.add_argument("--filename-stem")
     submit.add_argument("--adr-number", type=int)
     submit.add_argument("--candidate-filename")
+    submit.add_argument("--note", help="Operator note payload for operator-request intents")
     submit.add_argument("--wait", action="store_true")
     submit.add_argument("--timeout-seconds", type=float, default=5.0)
 
@@ -479,6 +480,8 @@ def main(argv: list[str] | None = None) -> int:
                 context["adr_number"] = args.adr_number
             if args.candidate_filename:
                 context["candidate_filename"] = args.candidate_filename
+            if args.note:
+                context["note"] = args.note
             payload = submit_intent(project_dir, kind=args.kind, session_id=args.session_id, context=context, intent_id=args.intent_id)
             if args.wait:
                 result = wait_for_result(project_dir, payload["intent"]["id"], timeout_seconds=args.timeout_seconds)

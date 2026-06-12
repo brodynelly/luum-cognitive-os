@@ -5,6 +5,7 @@ Covers:
   - empty-history fallback (no coverage-history.jsonl)
   - trend calculation when history exists
   - --brief output format
+  - cos-project-coverage.v1 artifact (mode detection, schema, symlink counting)
 """
 from __future__ import annotations
 
@@ -21,6 +22,9 @@ import pytest
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
 SCRIPT = Path(__file__).parent.parent.parent / "scripts" / "cos_coverage.py"
+
+sys.path.insert(0, str(SCRIPT.parent))
+import cos_coverage  # noqa: E402
 
 
 def run_coverage(project_dir: Path, *args: str) -> subprocess.CompletedProcess:
@@ -363,3 +367,259 @@ class TestCache:
         run_coverage(fake_project, "--refresh")
         second_ts = json.loads(cache.read_text())["_cached_at"]
         assert second_ts >= first_ts
+
+
+# ── cos-project-coverage.v1 artifact ───────────────────────────────────────────
+
+ARTIFACT_REL = Path(".cognitive-os") / "reports" / "coverage-latest.json"
+
+
+def make_installed_project(
+    tmp_path: Path,
+    *,
+    hooks: int = 3,
+    rules: int = 2,
+    skills: int = 1,
+    meta: dict | None = None,
+) -> Path:
+    """Build a fake INSTALLED project (install-meta + nested component dirs)."""
+    cos = tmp_path / ".cognitive-os"
+    if meta is None:
+        meta = {
+            "hooks_installed": hooks,
+            "rules_installed": rules,
+            "skills_installed": skills,
+        }
+    cos.mkdir(parents=True, exist_ok=True)
+    (cos / "install-meta.json").write_text(json.dumps(meta))
+
+    hooks_dir = cos / "hooks" / "cos"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(hooks):
+        (hooks_dir / f"hook-{i}.sh").write_text("#!/bin/bash\nexit 0\n")
+    # Non-component noise: _lib dir and a non-.sh file must not be counted.
+    (hooks_dir / "_lib").mkdir(exist_ok=True)
+    (hooks_dir / "_lib" / "shared.sh").write_text("# lib\n")
+    (hooks_dir / "README.txt").write_text("not a hook\n")
+
+    rules_dir = cos / "rules" / "cos"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(rules):
+        (rules_dir / f"rule-{i}.md").write_text("# rule\n")
+
+    skills_dir = cos / "skills" / "cos"
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    for i in range(skills):
+        skill = skills_dir / f"skill-{i}"
+        skill.mkdir(exist_ok=True)
+        (skill / "SKILL.md").write_text("# skill\n")
+    # CATALOG.md is an index file, not a skill component.
+    (skills_dir / "CATALOG.md").write_text("# catalog\n")
+    return tmp_path
+
+
+def read_artifact(project_dir: Path) -> dict:
+    return json.loads((project_dir / ARTIFACT_REL).read_text())
+
+
+class TestModeDetection:
+    def test_project_mode_when_install_meta_and_no_acc_inputs(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        assert cos_coverage.detect_mode(tmp_path) == "project"
+
+    def test_source_repo_mode_without_install_meta(self, tmp_path: Path) -> None:
+        assert cos_coverage.detect_mode(tmp_path) == "source-repo"
+
+    def test_source_repo_mode_when_acc_inputs_present(self, tmp_path: Path) -> None:
+        # install-meta exists, but the project also has ACC source inputs.
+        make_installed_project(tmp_path)
+        audit = tmp_path / ".cognitive-os" / "metrics" / "aspirational-audit.jsonl"
+        make_audit_jsonl(audit, [audit_record("scripts/x.py", "REAL")])
+        assert cos_coverage.detect_mode(tmp_path) == "source-repo"
+
+    def test_fake_acc_project_is_source_repo(self, fake_project: Path) -> None:
+        assert cos_coverage.detect_mode(fake_project) == "source-repo"
+
+
+class TestArtifactSchema:
+    def test_artifact_written_on_refresh(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        result = run_coverage(tmp_path, "--json", "--refresh")
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / ARTIFACT_REL).exists()
+
+    def test_artifact_written_on_cache_miss_without_refresh(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        result = run_coverage(tmp_path, "--json")
+        assert result.returncode == 0, result.stderr
+        assert (tmp_path / ARTIFACT_REL).exists()
+
+    def test_artifact_top_level_schema(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        run_coverage(tmp_path, "--refresh")
+        artifact = read_artifact(tmp_path)
+        assert artifact["schema_version"] == "cos-project-coverage.v1"
+        assert artifact["mode"] in ("project", "source-repo")
+        assert artifact["surfaces"] == ["hooks", "rules", "skills"]
+        for key in ("generated_at", "summary", "components"):
+            assert key in artifact, f"Missing key: {key}"
+
+    def test_artifact_summary_shape(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        run_coverage(tmp_path, "--refresh")
+        summary = read_artifact(tmp_path)["summary"]
+        for key in ("total", "wired", "partial", "missing"):
+            assert isinstance(summary[key], int), f"summary.{key} not int"
+
+    def test_artifact_components_shape(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        run_coverage(tmp_path, "--refresh")
+        components = read_artifact(tmp_path)["components"]
+        for surface in ("hooks", "rules", "skills"):
+            assert isinstance(components[surface]["installed"], int)
+
+    def test_artifact_generated_at_iso8601_utc(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        run_coverage(tmp_path, "--refresh")
+        generated_at = read_artifact(tmp_path)["generated_at"]
+        time.strptime(generated_at, "%Y-%m-%dT%H:%M:%SZ")  # raises if malformed
+
+    def test_artifact_is_valid_json_file(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path)
+        run_coverage(tmp_path, "--refresh")
+        # No leftover tmp files from the atomic write.
+        leftovers = list((tmp_path / ".cognitive-os" / "reports").glob("*.tmp.*"))
+        assert leftovers == []
+
+    def test_source_repo_artifact_maps_acc_counts(self, fake_project: Path) -> None:
+        # fake_project: REAL=2, DORMANT=1, ASPIRATIONAL=1
+        result = run_coverage(fake_project, "--json", "--refresh")
+        assert result.returncode == 0, result.stderr
+        artifact = read_artifact(fake_project)
+        assert artifact["mode"] == "source-repo"
+        assert artifact["summary"] == {
+            "total": 4, "wired": 2, "partial": 1, "missing": 1,
+        }
+
+
+class TestProjectModeCounts:
+    def test_components_count_actual_entries(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path, hooks=5, rules=3, skills=2)
+        run_coverage(tmp_path, "--refresh")
+        artifact = read_artifact(tmp_path)
+        assert artifact["mode"] == "project"
+        assert artifact["components"]["hooks"]["installed"] == 5
+        assert artifact["components"]["rules"]["installed"] == 3
+        assert artifact["components"]["skills"]["installed"] == 2
+
+    def test_summary_total_from_install_meta(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path, hooks=2, rules=2, skills=1)
+        run_coverage(tmp_path, "--refresh")
+        summary = read_artifact(tmp_path)["summary"]
+        assert summary == {"total": 5, "wired": 5, "partial": 0, "missing": 0}
+
+    def test_missing_when_fewer_installed_than_expected(self, tmp_path: Path) -> None:
+        # install-meta claims 4 hooks but only 2 are on disk.
+        make_installed_project(
+            tmp_path, hooks=2, rules=1, skills=1,
+            meta={"hooks_installed": 4, "rules_installed": 1, "skills_installed": 1},
+        )
+        run_coverage(tmp_path, "--refresh")
+        summary = read_artifact(tmp_path)["summary"]
+        assert summary["total"] == 6
+        assert summary["wired"] == 4
+        assert summary["missing"] == 2
+        assert summary["partial"] == 0
+
+    def test_wired_capped_at_total(self, tmp_path: Path) -> None:
+        # More on disk than install-meta claims: wired must not exceed total.
+        make_installed_project(
+            tmp_path, hooks=5, rules=1, skills=1,
+            meta={"hooks_installed": 1, "rules_installed": 1, "skills_installed": 1},
+        )
+        run_coverage(tmp_path, "--refresh")
+        summary = read_artifact(tmp_path)["summary"]
+        assert summary["total"] == 3
+        assert summary["wired"] == 3
+        assert summary["missing"] == 0
+
+    def test_install_meta_without_counts_uses_actual(self, tmp_path: Path) -> None:
+        make_installed_project(
+            tmp_path, hooks=3, rules=2, skills=1, meta={"version": "1.0.0"},
+        )
+        run_coverage(tmp_path, "--refresh")
+        summary = read_artifact(tmp_path)["summary"]
+        assert summary == {"total": 6, "wired": 6, "partial": 0, "missing": 0}
+
+    def test_absent_component_dirs_count_zero(self, tmp_path: Path) -> None:
+        cos = tmp_path / ".cognitive-os"
+        cos.mkdir(parents=True)
+        (cos / "install-meta.json").write_text("{}")
+        result = run_coverage(tmp_path, "--json", "--refresh")
+        assert result.returncode == 0, result.stderr
+        artifact = read_artifact(tmp_path)
+        assert artifact["mode"] == "project"
+        for surface in ("hooks", "rules", "skills"):
+            assert artifact["components"][surface]["installed"] == 0
+        assert artifact["summary"] == {
+            "total": 0, "wired": 0, "partial": 0, "missing": 0,
+        }
+
+    def test_underscore_and_non_component_files_excluded(self, tmp_path: Path) -> None:
+        # make_installed_project plants _lib/shared.sh, README.txt, CATALOG.md.
+        make_installed_project(tmp_path, hooks=2, rules=1, skills=1)
+        run_coverage(tmp_path, "--refresh")
+        components = read_artifact(tmp_path)["components"]
+        assert components["hooks"]["installed"] == 2
+        assert components["skills"]["installed"] == 1
+
+
+class TestSymlinkCounting:
+    def test_symlink_and_target_count_once(self, tmp_path: Path) -> None:
+        make_installed_project(tmp_path, hooks=2, rules=1, skills=1)
+        hooks_dir = tmp_path / ".cognitive-os" / "hooks" / "cos"
+        # Symlink alias to an existing hook inside the same tree.
+        (hooks_dir / "alias-hook.sh").symlink_to(hooks_dir / "hook-0.sh")
+        assert cos_coverage.count_hook_components(
+            tmp_path / ".cognitive-os" / "hooks") == 2
+
+    def test_symlink_to_outside_target_counts_once(self, tmp_path: Path) -> None:
+        # Mirrors source-repo layout: hooks/x.sh -> ../packages/.../x.sh
+        external = tmp_path / "packages" / "pack" / "hooks"
+        external.mkdir(parents=True)
+        (external / "external-hook.sh").write_text("#!/bin/bash\n")
+        hooks_root = tmp_path / "hooks"
+        hooks_root.mkdir()
+        (hooks_root / "local-hook.sh").write_text("#!/bin/bash\n")
+        (hooks_root / "external-hook.sh").symlink_to(external / "external-hook.sh")
+        assert cos_coverage.count_hook_components(hooks_root) == 2
+
+    def test_symlinked_skill_dir_counts_once(self, tmp_path: Path) -> None:
+        skills_root = tmp_path / "skills"
+        real_skill = skills_root / "real-skill"
+        real_skill.mkdir(parents=True)
+        (real_skill / "SKILL.md").write_text("# skill\n")
+        (skills_root / "alias-skill").symlink_to(real_skill)
+        assert cos_coverage.count_skill_components(skills_root) == 1
+
+    def test_dangling_symlink_not_counted(self, tmp_path: Path) -> None:
+        hooks_root = tmp_path / "hooks"
+        hooks_root.mkdir()
+        (hooks_root / "real.sh").write_text("#!/bin/bash\n")
+        (hooks_root / "broken.sh").symlink_to(hooks_root / "gone.sh")
+        assert cos_coverage.count_hook_components(hooks_root) == 1
+
+    def test_symlink_loop_does_not_hang(self, tmp_path: Path) -> None:
+        hooks_root = tmp_path / "hooks"
+        nested = hooks_root / "nested"
+        nested.mkdir(parents=True)
+        (nested / "deep-hook.sh").write_text("#!/bin/bash\n")
+        (nested / "loop").symlink_to(hooks_root)
+        assert cos_coverage.count_hook_components(hooks_root) == 1
+
+    def test_rule_symlinks_deduplicated(self, tmp_path: Path) -> None:
+        rules_root = tmp_path / "rules"
+        rules_root.mkdir()
+        (rules_root / "a.md").write_text("# a\n")
+        (rules_root / "b.md").symlink_to(rules_root / "a.md")
+        assert cos_coverage.count_rule_components(rules_root) == 1

@@ -79,7 +79,7 @@ def test_default_install_projects_core_primitives_into_consumer_project(tmp_path
     assert install_meta["harness"] == harness
     assert install_meta["rules_installed"] >= 13
     assert install_meta["hooks_installed"] >= 37
-    assert install_meta["skills_installed"] >= 8
+    assert install_meta["skills_installed"] >= 7
     assert (tmp_path / settings_file).exists()
     if harness == "agents-md":
         agents = (tmp_path / "AGENTS.md").read_text()
@@ -182,7 +182,9 @@ def test_default_install_projects_core_primitives_into_consumer_project(tmp_path
         assert "CONVENTIONS.md" in (tmp_path / ".aider.conf.yml").read_text()
     if harness == "shell-ci":
         shell_meta = json.loads((tmp_path / ".cognitive-os/shell-ci-projection.json").read_text())
-        assert shell_meta["commands_projected"] == 15
+        manifest_text = (REPO_ROOT / "manifests" / "shell-ci-projection.yaml").read_text()
+        expected_commands = sum(1 for line in manifest_text.splitlines() if line.strip().startswith("- path: scripts/"))
+        assert shell_meta["commands_projected"] == expected_commands
         assert (tmp_path / ".github/workflows/cognitive-os-shell-ci.yml").is_file()
         assert (tmp_path / "scripts/cos-status.sh").is_symlink()
     if harness in STRUCTURAL_INSTRUCTION_FILES:
@@ -198,7 +200,10 @@ def test_default_install_projects_core_primitives_into_consumer_project(tmp_path
         assert "Do not claim Claude/Codex native lifecycle hook parity" in instruction_text
     assert (tmp_path / ".cognitive-os" / "hooks" / "cos" / "session-init.sh").exists()
     assert (tmp_path / ".cognitive-os" / "rules" / "cos" / "RULES-COMPACT.md").exists()
-    assert (tmp_path / ".cognitive-os" / "skills" / "cos" / "cos-status" / "SKILL.md").exists()
+    # cos-status is SCOPE: os-only — the installer must NOT ship it to consumer
+    # projects (its scripts/cos-status.sh only exists in the COS source repo).
+    assert not (tmp_path / ".cognitive-os" / "skills" / "cos" / "cos-status").exists()
+    assert (tmp_path / ".cognitive-os" / "skills" / "cos" / "compose-prompt" / "SKILL.md").exists()
 
 
 def test_codex_project_install_has_closed_hook_runtime_dependencies(tmp_path: Path) -> None:
@@ -285,9 +290,12 @@ def test_full_install_projects_core_primitives_into_consumer_project(tmp_path: P
     assert install_meta["mode"] == "full"
     assert install_meta["rules_installed"] >= 13
     assert install_meta["hooks_installed"] >= 37
-    assert install_meta["skills_installed"] >= 8
+    assert install_meta["skills_installed"] >= 7
     assert (tmp_path / settings_file).exists()
-    assert (tmp_path / ".cognitive-os" / "skills" / "cos" / "cos-status" / "SKILL.md").exists()
+    # cos-status is SCOPE: os-only — the installer must NOT ship it to consumer
+    # projects (its scripts/cos-status.sh only exists in the COS source repo).
+    assert not (tmp_path / ".cognitive-os" / "skills" / "cos" / "cos-status").exists()
+    assert (tmp_path / ".cognitive-os" / "skills" / "cos" / "compose-prompt" / "SKILL.md").exists()
     if harness in STRUCTURAL_INSTRUCTION_FILES:
         instruction_text = (tmp_path / STRUCTURAL_INSTRUCTION_FILES[harness]).read_text()
         assert "Portable Cognitive OS Contract" in instruction_text

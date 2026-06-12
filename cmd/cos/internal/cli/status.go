@@ -19,26 +19,39 @@ import (
 var (
 	statusJSON        bool
 	statusChangedOnly bool
+	statusProjectDir  string
 )
 
 var statusCmd = &cobra.Command{
 	Use:   "status",
-	Short: "Show release status of all packages",
-	Long: `Show the release status of all packages in the packages/ directory.
+	Short: "Show project install status or package release status",
+	Long: `Show Cognitive OS status. The command is mode-aware:
 
-For each package, displays the version from cos-package.yaml, the latest
-scoped git tag, and the number of commits since that tag.
+Project mode (installed consumer projects):
+  When the root has .cognitive-os/install-meta.json and no
+  packages/*/cos-package.yaml manifests, shows this project's Cognitive
+  OS install state: version, profile, harness, phase, hook/rule/skill
+  counts (recorded at install time vs on disk), cosd state, coverage
+  summary, and active sessions. A bare packages/ directory (for example
+  a JS monorepo) does not switch modes.
+
+Release mode (the Cognitive OS source repository):
+  When at least one packages/*/cos-package.yaml manifest exists, shows
+  the release status of all packages: the version from cos-package.yaml,
+  the latest scoped git tag, and the number of commits since that tag.
 
 Examples:
-  cos status                Show status of all packages
-  cos status --json         Output as JSON
-  cos status --changed-only Show only packages with unreleased changes`,
+  cos status                    Auto-detect mode and show status
+  cos status --json             Output as JSON
+  cos status --project-dir DIR  Inspect a specific project root
+  cos status --changed-only     Release mode: only packages with unreleased changes`,
 	RunE: runStatus,
 }
 
 func init() {
 	statusCmd.Flags().BoolVar(&statusJSON, "json", false, "Output as JSON")
-	statusCmd.Flags().BoolVar(&statusChangedOnly, "changed-only", false, "Show only packages with unreleased changes")
+	statusCmd.Flags().BoolVar(&statusChangedOnly, "changed-only", false, "Show only packages with unreleased changes (release mode)")
+	statusCmd.Flags().StringVar(&statusProjectDir, "project-dir", os.Getenv("COGNITIVE_OS_PROJECT_DIR"), "Project root to inspect (defaults to $COGNITIVE_OS_PROJECT_DIR when set, else auto-detect from cwd)")
 	rootCmd.AddCommand(statusCmd)
 }
 
@@ -126,15 +139,59 @@ func gitTagExistsInDir(dir, tag string) bool {
 	return strings.TrimSpace(string(output)) == tag
 }
 
-func runStatus(cmd *cobra.Command, args []string) error {
-	projectRoot := project.FindRootOrCwd()
+// hasPackageManifests reports whether projectRoot holds at least one
+// packages/*/cos-package.yaml manifest. Mode dispatch requires this evidence:
+// a bare packages/ directory (for example a JS monorepo inside a consumer
+// project) must not flip cos status into release mode. Manifest evidence
+// deliberately wins over install-meta so a self-hosted Cognitive OS source
+// repo (which can have both) still reports release status.
+func hasPackageManifests(projectRoot string) bool {
+	matches, err := filepath.Glob(filepath.Join(projectRoot, "packages", "*", "cos-package.yaml"))
+	return err == nil && len(matches) > 0
+}
 
+func runStatus(cmd *cobra.Command, args []string) error {
+	projectRoot := statusProjectDir
+	if projectRoot == "" {
+		projectRoot = project.FindRootOrCwd()
+	}
+
+	if hasPackageManifests(projectRoot) {
+		return runReleaseStatus(projectRoot)
+	}
+
+	metaPath := filepath.Join(projectRoot, ".cognitive-os", "install-meta.json")
+	if _, err := os.Stat(metaPath); err == nil {
+		return runProjectStatus(cmd, projectRoot)
+	}
+
+	manifestGlob := filepath.Join(projectRoot, "packages", "*", "cos-package.yaml")
+	return fmt.Errorf(`%s is neither a Cognitive OS release workspace nor an installed Cognitive OS project
+
+cos status has two modes:
+  release mode: package release status — requires at least one %s
+  project mode: this project's Cognitive OS install state — requires %s
+
+Neither was found. Run cos status from the Cognitive OS source repository or
+from an installed project, or point at one with --project-dir`,
+		projectRoot, manifestGlob, metaPath)
+}
+
+// runReleaseStatus shows the release status of all packages under
+// projectRoot/packages (the original cos status behavior). The text output
+// starts with a header naming the resolved root so redirection via
+// COGNITIVE_OS_PROJECT_DIR (or --project-dir) is always visible.
+func runReleaseStatus(projectRoot string) error {
 	statuses, err := discoverPackages(projectRoot)
 	if err != nil {
 		return err
 	}
 
 	if len(statuses) == 0 {
+		if statusJSON {
+			return printStatusJSON(projectRoot, statuses)
+		}
+		fmt.Printf("\nCognitive OS release status — %s\n", projectRoot)
 		fmt.Println("No packages found in packages/")
 		return nil
 	}
@@ -151,16 +208,28 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if statusJSON {
-		return printStatusJSON(statuses)
+		return printStatusJSON(projectRoot, statuses)
 	}
 
+	fmt.Printf("\nCognitive OS release status — %s\n", projectRoot)
 	return printStatusTable(statuses)
 }
 
-func printStatusJSON(statuses []PackageStatus) error {
+// releaseStatusPayload is the release-mode --json envelope. project_dir
+// identifies the resolved root so env-redirected runs are visible in
+// machine-readable output too.
+type releaseStatusPayload struct {
+	ProjectDir string          `json:"project_dir"`
+	Packages   []PackageStatus `json:"packages"`
+}
+
+func printStatusJSON(projectRoot string, statuses []PackageStatus) error {
+	if statuses == nil {
+		statuses = []PackageStatus{}
+	}
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(statuses)
+	return enc.Encode(releaseStatusPayload{ProjectDir: projectRoot, Packages: statuses})
 }
 
 func printStatusTable(statuses []PackageStatus) error {

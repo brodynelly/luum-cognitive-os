@@ -72,7 +72,6 @@ profiles:
       skills:
         - skills/compose-prompt/SKILL.md
         - skills/exhaustive-prompt/SKILL.md
-        - skills/cos-status/SKILL.md
         - skills/auto-refine/SKILL.md
         - skills/verification-before-completion/SKILL.md
         - skills/plan-feature/SKILL.md

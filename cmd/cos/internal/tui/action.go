@@ -13,10 +13,12 @@ import (
 
 // ActionOptions carries the explicit operator confirmation and action inputs.
 type ActionOptions struct {
-	Confirm   bool
-	MessageID string
-	AckStatus string
-	Note      string
+	Confirm    bool
+	MessageID  string
+	AckStatus  string
+	Note       string
+	IntentKind string
+	IntentNote string
 }
 
 // ActionResult is the receipt-backed result of an operable Surface 5 action.
@@ -85,6 +87,27 @@ var actionAllowlist = map[string]actionSpec{
 				return nil, err
 			}
 			return [][]string{{script, "--project-dir", root, "--json", "process-once"}}, nil
+		},
+	},
+	"cosd-submit-intent": {
+		Description: "Submit one operator intent to the local cosd file queue.",
+		Build: func(root string, opts ActionOptions) ([][]string, error) {
+			note := strings.TrimSpace(opts.IntentNote)
+			if note == "" {
+				return nil, errors.New("--intent-note is required for cosd-submit-intent")
+			}
+			kind := strings.TrimSpace(opts.IntentKind)
+			if kind == "" {
+				kind = "operator-request"
+			}
+			if kind != "operator-request" {
+				return nil, fmt.Errorf("intent kind %q is not allowed for cosd-submit-intent; allowed kinds: operator-request", kind)
+			}
+			script, err := resolveActionScript(root, "cosd")
+			if err != nil {
+				return nil, err
+			}
+			return [][]string{{script, "--project-dir", root, "--json", "submit-intent", "--kind=" + kind, "--note=" + note}}, nil
 		},
 	},
 	"inbox-ack": {

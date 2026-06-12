@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -195,6 +196,25 @@ func findTemplateRoot() (string, error) {
 		candidate := filepath.Join(dir, "templates", "project-templates")
 		if _, err := os.Stat(candidate); err == nil {
 			return candidate, nil
+		}
+	}
+
+	// 5. Machine-level COS source recorded by the installer
+	// (~/.cognitive-os/global-install-meta.json). Lets `cos new` work from
+	// any directory without env vars — same systemic fallback as the
+	// consumer action-script resolution.
+	if home, err := os.UserHomeDir(); err == nil {
+		metaPath := filepath.Join(home, ".cognitive-os", "global-install-meta.json")
+		if data, err := os.ReadFile(metaPath); err == nil {
+			var meta map[string]any
+			if json.Unmarshal(data, &meta) == nil {
+				if src, _ := meta["cos_source"].(string); src != "" {
+					candidate := filepath.Join(src, "templates", "project-templates")
+					if _, err := os.Stat(candidate); err == nil {
+						return candidate, nil
+					}
+				}
+			}
 		}
 	}
 

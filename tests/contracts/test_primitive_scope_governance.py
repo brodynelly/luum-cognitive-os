@@ -140,7 +140,17 @@ def test_project_and_both_primitives_do_not_embed_source_checkout_paths() -> Non
             if scope not in {"project", "both"}:
                 continue
             text = path.read_text(encoding="utf-8", errors="replace")
-            if any(pattern in text for pattern in HARD_CODED_SOURCE_PATTERNS):
+            # Honor inline allowlist markers: scanner/audit primitives legitimately
+            # embed absolute-path *pattern literals* and annotate those lines with
+            # cos-allow-absolute-path / cos-allow-local-privacy-pattern. Genuinely
+            # hardcoded paths on un-annotated lines are still caught.
+            scannable = "\n".join(
+                line
+                for line in text.splitlines()
+                if "cos-allow-absolute-path" not in line
+                and "cos-allow-local-privacy-pattern" not in line
+            )
+            if any(pattern in scannable for pattern in HARD_CODED_SOURCE_PATTERNS):
                 failures.append(str(path.relative_to(REPO)))
     assert not failures, "project/both primitives must not hardcode source checkout or developer-home paths:\n" + "\n".join(failures)
 

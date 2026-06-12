@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# cos-pi-guard — COS governance gate invoked by the pi cos-bridge extension.
+#
+# Called per pi tool_call by examples/pi-extension/cos-bridge.ts. Reads a tool-call
+# descriptor JSON on stdin, prints a decision JSON {block,reason,event_emitted}.
+# Anchors to THIS COS install (via BASH_SOURCE) — not the pi project's cwd, which
+# may be a different repo. See ADR-336 (Vector D).
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COS_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+if [ -x "$COS_ROOT/.venv/bin/python" ]; then
+  PYTHON="$COS_ROOT/.venv/bin/python"
+else
+  PYTHON="${PYTHON:-python3}"
+fi
+
+exec "$PYTHON" "$COS_ROOT/scripts/pi_tool_gate.py" "$@"

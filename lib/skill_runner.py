@@ -14,6 +14,7 @@ then via heuristics:
 
 - ``COGNITIVE_OS_HARNESS=claude_code``  → CC slash-command stop-gap (see below).
 - ``COGNITIVE_OS_HARNESS=codex``        → rendered SKILL.md body on stdout.
+- ``COGNITIVE_OS_HARNESS=pi``           → rendered SKILL.md body on stdout.
 - ``COGNITIVE_OS_HARNESS=bare_cli``     → rendered SKILL.md body on stdout.
 - Unset / unknown                       → bare_cli behaviour.
 
@@ -269,7 +270,8 @@ def detect_harness() -> str:
     1. ``COGNITIVE_OS_HARNESS`` env var (explicit).
     2. ``CLAUDE_MCP_SERVER`` / ``CLAUDE_PROJECT_DIR`` env → claude_code.
     3. ``CODEX_PROJECT_DIR`` / ``CODEX_SESSION_ID`` → codex.
-    4. Default: bare_cli.
+    4. ``PI_SESSION_ID`` / ``PI_PROJECT_DIR`` → pi.
+    5. Default: bare_cli.
     """
     explicit = os.environ.get("COGNITIVE_OS_HARNESS", "").lower()
     if explicit:
@@ -280,6 +282,9 @@ def detect_harness() -> str:
 
     if os.environ.get("CODEX_PROJECT_DIR") or os.environ.get("CODEX_SESSION_ID"):
         return "codex"
+
+    if os.environ.get("PI_SESSION_ID") or os.environ.get("PI_PROJECT_DIR"):
+        return "pi"
 
     return "bare_cli"
 

@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# cos-pi-ingest — replay pi session transcripts into the canonical event stream.
+#
+# Thin wrapper over scripts/pi_session_ingest.py (ADR-336). Feeds the ADR-033
+# PiAdapter so pi-driven work shows up in
+# .cognitive-os/metrics/canonical-events.jsonl alongside the other harnesses.
+#
+# Usage:
+#   cos-pi-ingest [--pi-home DIR] [--session FILE] [--json]
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+export COGNITIVE_OS_PROJECT_DIR="${COGNITIVE_OS_PROJECT_DIR:-$REPO_ROOT}"
+
+if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+  PYTHON="$REPO_ROOT/.venv/bin/python"
+else
+  PYTHON="${PYTHON:-python3}"
+fi
+
+exec "$PYTHON" "$REPO_ROOT/scripts/pi_session_ingest.py" \
+  --project-dir "$COGNITIVE_OS_PROJECT_DIR" "$@"

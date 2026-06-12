@@ -1,6 +1,18 @@
 schema_version: primitive-behavior-evidence.v1
 purpose: Explicit behavior evidence mapping for primitives whose proof should not rely only on text-reference heuristics.
 evidence:
+- primitive: scripts/pi_tool_gate.py
+  harnesses:
+  - shell-ci
+  tests:
+  - tests/unit/test_pi_tool_gate.py
+  rationale: ADR-336 pi governance gate; behavior covered by path-policy, destructive-command, glob, and live-emission/contract tests.
+- primitive: scripts/pi_session_ingest.py
+  harnesses:
+  - shell-ci
+  tests:
+  - tests/unit/test_pi_session_ingest.py
+  rationale: ADR-336 pi transcript ingest; behavior covered by canonical-event emission, idempotency, and cursor-persistence tests.
 - primitive: scripts/check-bun-install-policy
   harnesses:
   - shell-ci

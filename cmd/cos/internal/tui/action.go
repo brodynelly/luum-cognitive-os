@@ -13,10 +13,12 @@ import (
 
 // ActionOptions carries the explicit operator confirmation and action inputs.
 type ActionOptions struct {
-	Confirm   bool
-	MessageID string
-	AckStatus string
-	Note      string
+	Confirm    bool
+	MessageID  string
+	AckStatus  string
+	Note       string
+	IntentKind string
+	IntentNote string
 }
 
 // ActionResult is the receipt-backed result of an operable Surface 5 action.
@@ -49,13 +51,42 @@ var actionAllowlist = map[string]actionSpec{
 	"refresh-coverage": {
 		Description: "Refresh primitive coverage reports through scripts/cos-coverage.",
 		Build: func(root string, _ ActionOptions) ([][]string, error) {
-			return [][]string{{filepath.Join(root, "scripts", "cos-coverage"), "--json", "--refresh", "--project-dir", root}}, nil
+			script, err := resolveScript(root, "cos-coverage")
+			if err != nil {
+				return nil, err
+			}
+			return [][]string{{script, "--json", "--refresh", "--project-dir", root}}, nil
 		},
 	},
 	"cosd-process-once": {
 		Description: "Ask the local cosd file-queue arbiter to process one batch.",
 		Build: func(root string, _ ActionOptions) ([][]string, error) {
-			return [][]string{{filepath.Join(root, "scripts", "cosd"), "--project-dir", root, "--json", "process-once"}}, nil
+			script, err := resolveScript(root, "cosd")
+			if err != nil {
+				return nil, err
+			}
+			return [][]string{{script, "--project-dir", root, "--json", "process-once"}}, nil
+		},
+	},
+	"cosd-submit-intent": {
+		Description: "Submit one operator intent to the local cosd file queue.",
+		Build: func(root string, opts ActionOptions) ([][]string, error) {
+			note := strings.TrimSpace(opts.IntentNote)
+			if note == "" {
+				return nil, errors.New("--intent-note is required for cosd-submit-intent")
+			}
+			kind := strings.TrimSpace(opts.IntentKind)
+			if kind == "" {
+				kind = "operator-request"
+			}
+			if kind != "operator-request" {
+				return nil, fmt.Errorf("intent kind %q is not allowed for cosd-submit-intent; allowed kinds: operator-request", kind)
+			}
+			script, err := resolveScript(root, "cosd")
+			if err != nil {
+				return nil, err
+			}
+			return [][]string{{script, "--project-dir", root, "--json", "submit-intent", "--kind=" + kind, "--note=" + note}}, nil
 		},
 	},
 	"inbox-ack": {
@@ -69,9 +100,13 @@ var actionAllowlist = map[string]actionSpec{
 			if status == "" {
 				status = "seen"
 			}
-			cmd := []string{filepath.Join(root, "scripts", "cos_agent_message.py"), "--project-dir", root, "--json", "ack", "--message-id", messageID, "--status", status}
+			script, err := resolveScript(root, "cos_agent_message.py")
+			if err != nil {
+				return nil, err
+			}
+			cmd := []string{script, "--project-dir", root, "--json", "ack", "--message-id=" + messageID, "--status=" + status}
 			if strings.TrimSpace(opts.Note) != "" {
-				cmd = append(cmd, "--note", opts.Note)
+				cmd = append(cmd, "--note="+opts.Note)
 			}
 			return [][]string{cmd}, nil
 		},

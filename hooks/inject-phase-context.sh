@@ -212,7 +212,7 @@ NOTE: New hooks are registered in scripts/apply-efficiency-profile.sh under the 
   # Workflow trap
   if echo "$AGENT_PROMPT" | grep -qiE 'workflow|pipeline.*yaml|\.cognitive-os/workflows'; then
     GOTCHAS="${GOTCHAS}
-NOTE: Workflow YAMLs in .cognitive-os/workflows/ follow the schema in docs/08-References/root/adw-patterns.md. Steps have type: agent|script|gate."
+NOTE: There is NO workflow-YAML engine (removed 2026-04-20, 0 callers). The ADW mechanism is the skill-driven SDD pipeline: packages/sdd-compound/lib/sdd_resume.py (8-phase DAG) + skills/sdd-apply + skills/sdd-verify. .cognitive-os/workflows/sdd/ is the consumer artifact dir created on demand by cos sdd. See docs/08-References/root/adw-patterns.md."
   fi
 
   # Plans directory trap

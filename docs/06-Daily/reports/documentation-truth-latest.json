@@ -1,7 +1,127 @@
 {
-  "generated_at": "2026-05-18T21:33:30+00:00",
+  "generated_at": "2026-06-12T00:00:18+00:00",
   "manifest": "manifests/documentation-truth-claims.yaml",
   "rows": [
+    {
+      "check": "source_report_exists",
+      "claim_id": "adw_mechanism_reality",
+      "doc": "docs/06-Daily/reports/agentic-layer-adw-audit-2026-06-11.md",
+      "evidence": [
+        "docs/06-Daily/reports/agentic-layer-adw-audit-2026-06-11.md"
+      ],
+      "message": "Required source report exists",
+      "next_action": "keep report generated",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "required_doc_exists",
+      "claim_id": "adw_mechanism_reality",
+      "doc": "docs/08-References/root/adw-patterns.md",
+      "evidence": [
+        "docs/08-References/root/adw-patterns.md"
+      ],
+      "message": "Required documentation surface exists",
+      "next_action": "keep doc linked",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "forbidden_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": "docs/08-References/root/adw-patterns.md",
+      "evidence": [
+        "lib/pipeline_executor.py"
+      ],
+      "message": "Forbidden stale phrase absent: lib/pipeline_executor.py",
+      "next_action": "remove stale or contradictory prose",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "forbidden_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": "docs/08-References/root/adw-patterns.md",
+      "evidence": [
+        "python3 -m lib.pipeline_executor"
+      ],
+      "message": "Forbidden stale phrase absent: python3 -m lib.pipeline_executor",
+      "next_action": "remove stale or contradictory prose",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "forbidden_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": "docs/08-References/root/adw-patterns.md",
+      "evidence": [
+        "feature-pipeline.yaml"
+      ],
+      "message": "Forbidden stale phrase absent: feature-pipeline.yaml",
+      "next_action": "remove stale or contradictory prose",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "forbidden_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": "docs/08-References/root/adw-patterns.md",
+      "evidence": [
+        "/run-pipeline"
+      ],
+      "message": "Forbidden stale phrase absent: /run-pipeline",
+      "next_action": "remove stale or contradictory prose",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "required_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": null,
+      "evidence": [
+        "packages/sdd-compound/lib/sdd_resume.py"
+      ],
+      "message": "Required phrase present: packages/sdd-compound/lib/sdd_resume.py",
+      "next_action": "add or regenerate current-truth prose",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "required_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": null,
+      "evidence": [
+        "skills/sdd-apply"
+      ],
+      "message": "Required phrase present: skills/sdd-apply",
+      "next_action": "add or regenerate current-truth prose",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "required_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": null,
+      "evidence": [
+        "removed 2026-04-20"
+      ],
+      "message": "Required phrase present: removed 2026-04-20",
+      "next_action": "add or regenerate current-truth prose",
+      "severity": "medium",
+      "status": "pass"
+    },
+    {
+      "check": "required_phrase",
+      "claim_id": "adw_mechanism_reality",
+      "doc": null,
+      "evidence": [
+        ".cognitive-os/workflows/sdd/"
+      ],
+      "message": "Required phrase present: .cognitive-os/workflows/sdd/",
+      "next_action": "add or regenerate current-truth prose",
+      "severity": "medium",
+      "status": "pass"
+    },
     {
       "check": "source_report_exists",
       "claim_id": "consumer_projection_harnesses",
@@ -1520,6 +1640,9 @@
   "summary": {
     "block_count": 0,
     "by_claim": {
+      "adw_mechanism_reality": {
+        "pass": 10
+      },
       "consumer_projection_harnesses": {
         "pass": 17
       },
@@ -1537,8 +1660,8 @@
       }
     },
     "by_status": {
-      "pass": 126
+      "pass": 136
     },
-    "rows": 126
+    "rows": 136
   }
 }

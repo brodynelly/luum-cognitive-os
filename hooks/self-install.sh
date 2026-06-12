@@ -634,10 +634,9 @@ if [ "$hooks_path" != ".githooks" ]; then
   fixes="${fixes:+$fixes, }fixed core.hooksPath -> .githooks"
 fi
 
-# Check 5: workflows directory exists
-if [ ! -d "$PROJECT_DIR/.cognitive-os/workflows" ]; then
-  fixes="${fixes:+$fixes, }.cognitive-os/workflows/ missing"
-fi
+# Check 5: (removed) .cognitive-os/workflows/ is created on demand by `cos sdd`
+# (cmd/cos/internal/cli/sdd.go); its absence is not an installation defect.
+# The workflow-YAML engine that required it was removed 2026-04-20 (ADR-277 drift fix).
 
 # Check 6: pipeline state directory exists
 if [ ! -d "$PROJECT_DIR/.cognitive-os/pipeline-state" ]; then

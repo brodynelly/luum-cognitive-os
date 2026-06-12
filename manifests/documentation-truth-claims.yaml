@@ -167,3 +167,30 @@ claims:
       doc: docs/02-Decisions/adrs/ADR-278-subprocess-run-timeout-discipline.md
       marker: subprocess_timeout_discipline
       required: false
+  adw_mechanism_reality:
+    severity: medium
+    description: >-
+      ADW reference docs must describe the real ADW mechanism (skill-driven SDD
+      pipeline: sdd_resume.py 8-phase DAG + SDD phase skills + batch_runner +
+      cos sdd consumer lane) and must not resurrect the workflow-YAML engine
+      removed 2026-04-20 with 0 production callers (lib/pipeline_executor and
+      per-pipeline YAMLs under a .cognitive-os/workflows/ root).
+    facts:
+      phase_dag: packages/sdd-compound/lib/sdd_resume.py
+      batch_runner: packages/agent-lifecycle/lib/batch_runner.py
+      consumer_lane: cmd/cos/internal/cli/sdd.go
+      drift_audit: docs/06-Daily/reports/agentic-layer-adw-audit-2026-06-11.md
+    source_reports:
+      - docs/06-Daily/reports/agentic-layer-adw-audit-2026-06-11.md
+    required_docs:
+      - docs/08-References/root/adw-patterns.md
+    required_phrases:
+      - packages/sdd-compound/lib/sdd_resume.py
+      - skills/sdd-apply
+      - removed 2026-04-20
+      - .cognitive-os/workflows/sdd/
+    forbidden_phrases:
+      - lib/pipeline_executor.py
+      - python3 -m lib.pipeline_executor
+      - feature-pipeline.yaml
+      - /run-pipeline

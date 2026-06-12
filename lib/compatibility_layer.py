@@ -83,6 +83,12 @@ PROVIDER_ADAPTERS: tuple[ProviderAdapterContract, ...] = (
         normalized_into="pkg/hook/context.go",
         compatibility_surface="Editor event payload parsing and canonical tool mapping.",
     ),
+    ProviderAdapterContract(
+        name="pi",
+        adapter_path="internal/provider/pi.go",
+        normalized_into="pkg/hook/context.go",
+        compatibility_surface="pi cos-bridge payload parsing (tool/input/event), canonical tool+event mapping, {block,reason} response shape.",
+    ),
 )
 
 
@@ -98,6 +104,12 @@ HARNESS_ADAPTERS: tuple[HarnessAdapterContract, ...] = (
         adapter_path="lib/harness_adapter/aider.py",
         normalized_into="lib/harness_adapter/base.py",
         compatibility_surface="Passive transcript parsing into canonical events with version-aware dispatch and parse errors.",
+    ),
+    HarnessAdapterContract(
+        name="pi",
+        adapter_path="lib/harness_adapter/pi.py",
+        normalized_into="lib/harness_adapter/base.py",
+        compatibility_surface="Passive pi session-transcript parsing into canonical session, prompt, tool-use (toolCall/toolResult/bashExecution), and token-usage events.",
     ),
 )
 

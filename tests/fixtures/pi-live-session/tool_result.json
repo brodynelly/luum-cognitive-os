@@ -1,0 +1,14 @@
+{
+  "type": "message",
+  "id": "019eb3f7-3200-7000-8000-000000000003",
+  "parentId": "019eb3f7-3100-7000-8000-000000000002",
+  "timestamp": "2026-06-11T00:01:58.000Z",
+  "message": {
+    "role": "toolResult",
+    "toolCallId": "call_abc123",
+    "toolName": "read",
+    "content": [ { "type": "text", "text": "<file contents elided>" } ],
+    "isError": false,
+    "timestamp": "2026-06-11T00:01:58.000Z"
+  }
+}

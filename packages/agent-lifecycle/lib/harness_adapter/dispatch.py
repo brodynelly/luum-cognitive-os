@@ -39,6 +39,7 @@ from .base import CanonicalEvent, HarnessAdapter, HeartbeatTick
 from .claude_code import ClaudeCodeAdapter
 from .codex import CodexAdapter
 from .opencode import OpenCodeAdapter
+from .pi import PiAdapter
 
 #: Order matters: more-specific adapters go first.
 #: BareCliAdapter is last — it acts as a fallback when no other adapter claims
@@ -48,6 +49,7 @@ ADAPTERS: List[Type[HarnessAdapter]] = [
     CodexAdapter,
     ClaudeCodeAdapter,
     AiderAdapter,
+    PiAdapter,
     BareCliAdapter,
 ]
 

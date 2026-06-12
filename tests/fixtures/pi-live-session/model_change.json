@@ -1,0 +1,8 @@
+{
+  "type": "model_change",
+  "id": "019eb3f7-2700-7000-8000-000000000005",
+  "parentId": "019eb3f7-2630-75c3-a668-b89ac1ecbe7d",
+  "timestamp": "2026-06-10T23:56:30.000Z",
+  "provider": "anthropic",
+  "modelId": "claude-sonnet-4-6"
+}

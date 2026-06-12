@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "task_id": "pi-demo-001",
+  "title": "Example pi-driven task",
+  "description": "Replace this description with the change you want the pi agent to make. cos run-task injects this text as COS_TASK_DESCRIPTION; bin/cos-pi-agent feeds it to `pi -p` inside the isolated worktree.",
+  "execution": {
+    "mode": "command",
+    "provider": "pi",
+    "command": "bin/cos-pi-agent --role builder",
+    "timeout_seconds": 1800
+  },
+  "workspace": {
+    "repo": ".",
+    "ref": "HEAD",
+    "isolation": "worktree"
+  },
+  "artifacts": {
+    "dir": ".cognitive-os/run-task/pi-demo-001"
+  },
+  "acceptance_criteria": [
+    {
+      "id": "tests",
+      "command": "npm test",
+      "timeout_seconds": 600
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 2400,
+    "max_cost_usd": 5.0
+  },
+  "metadata": {
+    "harness": "pi",
+    "note": "Swap acceptance_criteria[].command for your project's real test/lint/build commands."
+  }
+}

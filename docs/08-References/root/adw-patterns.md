@@ -19,46 +19,54 @@ ADW = Deterministic Pipeline + Non-Deterministic Agents
 
 ## Cognitive OS as ADW Implementation
 
-The `.cognitive-os/workflows/` directory IS an ADW implementation. Each workflow YAML defines a deterministic pipeline that orchestrates non-deterministic agent execution.
+The production ADW in Cognitive OS is the **skill-driven SDD pipeline** — a
+deterministic 8-phase DAG whose phase work is executed by non-deterministic
+agents loading SDD skills, governed by the hook mesh.
 
-### Our ADW Pipelines
+> **Historical note (documentation-truth, ADR-277):** an earlier generation of
+> this doc described a standalone workflow-YAML engine — per-pipeline YAML
+> files under a `.cognitive-os/workflows/` root with `agent`/`script`/`gate`
+> step types, executed by a dedicated pipeline-executor module. That engine
+> was **removed 2026-04-20 with 0 production callers** (see the deprecation
+> note at the top of `packages/agent-lifecycle/lib/batch_runner.py`). Do not
+> author workflow YAMLs against that schema; it has no runtime.
 
-| Pipeline | File | Purpose | Steps |
-|----------|------|---------|-------|
-| Feature | `feature-pipeline.yaml` | New feature development | propose, spec, design, tasks, apply, verify, archive |
-| Bug Fix | `bugfix-pipeline.yaml` | Bug investigation and fix | reproduce, diagnose, fix, test, verify |
-| Refactor | `refactor-pipeline.yaml` | Code improvement | analyze, plan, apply, verify |
-| SRE | `sre-pipeline.yaml` | Incident response | detect, classify, repair, verify, document |
-| Review | `review-pipeline.yaml` | Code review automation | analyze, check-gates, report |
+### The Real Mechanism
 
-### Anatomy of an ADW Step
+| Component | Location | Role |
+|-----------|----------|------|
+| Phase DAG + resume | `packages/sdd-compound/lib/sdd_resume.py` | Deterministic 8-phase order, dependency gating, state resume |
+| Batch runner | `packages/agent-lifecycle/lib/batch_runner.py` | Runs SDD phases for one or many changes (CLI or YAML batch file) |
+| Phase skills | `skills/sdd-spec`, `skills/sdd-tasks`, `skills/sdd-apply`, `skills/sdd-verify` | Non-deterministic agent steps, one skill per phase |
+| Issue pipeline | `skills/issue-pipeline` (→ `packages/sdd-compound/skills/issue-pipeline`) | End-to-end issue → SDD lane composition |
+| Consumer lane | `cos sdd` (Go CLI, `cmd/cos/internal/cli/sdd.go`) | Writes durable phase artifacts under `.cognitive-os/workflows/sdd/<feature>/` |
+| Governance | Hook mesh (PreToolUse/PostToolUse/Stop) | Gates, trust report, blast radius, rate limits around every agent step |
 
-Each step in an ADW has:
+### The 8 Phases
 
-```yaml
-steps:
-  - name: step-name
-    type: agent | script | gate
-    skill: skill-name              # Which skill the agent loads
-    model: sonnet | opus | haiku   # Model routing
-    inputs:                        # What this step receives
-      - previous-step.output
-    outputs:                       # What this step produces
-      - artifact-key
-    success_criteria:              # How to verify success
-      - condition: "artifact exists"
-      - condition: "tests pass"
-    on_failure: retry | skip | abort | escalate
-    max_retries: 3
+```
+explore → propose → spec → design → tasks → apply → verify → archive
 ```
 
-### Step Types
+Phase order and dependencies are enforced in code
+(`SDD_PHASES` + `PHASE_DEPENDENCIES` in `packages/sdd-compound/lib/sdd_resume.py`).
+A phase cannot start until its dependencies are complete; state is persisted so
+interrupted runs resume from the last completed phase.
 
-| Type | Behavior | Example |
-|------|----------|---------|
-| `agent` | Sub-agent executes with skill loaded | sdd-apply, systematic-debugging |
-| `script` | Deterministic command execution | `yarn test`, `go build` |
-| `gate` | Boolean check, blocks pipeline if false | test coverage > 80%, no lint errors |
+### Artifact Layout (consumer lane)
+
+`cos sdd` creates `.cognitive-os/workflows/sdd/` **on demand** — the directory
+does not exist until the first SDD run, and its absence is not an installation
+defect:
+
+```
+.cognitive-os/workflows/sdd/state.json
+.cognitive-os/workflows/sdd/<feature>/requirements.md
+.cognitive-os/workflows/sdd/<feature>/design.md
+.cognitive-os/workflows/sdd/<feature>/tasks.md
+.cognitive-os/workflows/sdd/<feature>/traceability.md
+.cognitive-os/workflows/sdd/<feature>/review.md
+```
 
 ## ADW Lifecycle
 
@@ -92,8 +100,9 @@ Validate the pipeline with controlled inputs before deploying.
 
 Make the pipeline available for use.
 
-- Add to `.cognitive-os/workflows/`
-- Register in cognitive-os.yaml under `workflows`
+- Implement phase logic as a skill (see `skills/sdd-apply` for the pattern)
+- Wire deterministic ordering through the DAG (`sdd_resume.py`) or the batch
+  runner rather than a bespoke executor
 - Add entry to CATALOG.md if user-invocable
 - Document trigger mechanism (command, event, schedule)
 
@@ -116,62 +125,18 @@ Improve based on monitoring data.
 
 ## Creating a New ADW
 
-### Step 1: Define the Workflow
+There is no workflow-YAML authoring path. To add a new ADW today:
 
-```yaml
-# .cognitive-os/workflows/my-workflow.yaml
-name: my-workflow
-description: What this workflow does
-trigger: manual | event | schedule
-budget:
-  max_cost: $2.00
-  max_duration: 30m
-steps:
-  - name: analyze
-    type: agent
-    skill: analysis-skill
-    model: sonnet
-    outputs: [analysis-report]
-  - name: quality-gate
-    type: gate
-    condition: "analysis-report.confidence > 0.8"
-    on_failure: abort
-  - name: execute
-    type: agent
-    skill: execution-skill
-    model: sonnet
-    inputs: [analysis-report]
-    outputs: [result]
-    on_failure: retry
-    max_retries: 2
-```
-
-### Step 2: Add PITER Loop (Optional)
-
-For workflows that should self-correct:
-
-```yaml
-  - name: implement-and-verify
-    type: piter-loop
-    config:
-      max_iterations: 3
-      plan: analyze.output
-      implement_skill: execution-skill
-      test_command: "yarn test"
-      evaluate_skill: verification-skill
-```
-
-### Step 3: Register
-
-Add to `cognitive-os.yaml`:
-
-```yaml
-workflows:
-  my-workflow:
-    file: workflows/my-workflow.yaml
-    trigger: manual
-    command: /my-workflow
-```
+1. **Express phases as skills** — one focused skill per agent step
+   (`skills/<phase-skill>/SKILL.md`), following the existing SDD phase skills.
+2. **Sequence deterministically** — for SDD-shaped work, reuse the 8-phase DAG
+   via the batch runner; for other shapes, a thin script that invokes skills in
+   order with explicit gates between them is the supported pattern.
+3. **Gate with hooks** — the governance mesh (trust score, claim validation,
+   blast radius, rate limits) fires automatically around every agent step; add
+   bespoke gates as shell checks between steps, not as a new engine.
+4. **Register** — CATALOG.md for user-invocable entry points; Engram topic keys
+   for cross-session state.
 
 ## ADW Anti-Patterns
 
@@ -183,30 +148,30 @@ workflows:
 | Monolithic steps | One step does too much, hard to debug | Break into smaller, focused steps |
 | No failure handling | Pipeline crashes on first error | Define on_failure for each step |
 | Hardcoded models | Cannot optimize cost/quality tradeoff | Use model-routing table |
+| Building a new engine | Duplicates the DAG + hooks substrate; dies with 0 callers | Compose skills + scripts + gates on the existing substrate |
 
 ## Relationship to Other Concepts
 
 | Concept | Relationship |
 |---------|-------------|
 | PITER | PITER is an inner loop within ADW steps — it handles the implement/test/refine cycle |
-| SDD | SDD is the most mature ADW in Cognitive OS — 8 phases with defined artifacts |
+| SDD | SDD is the production ADW in Cognitive OS — 8 phases with defined artifacts |
 | Closed-loop prompts | Enable agent steps to self-correct within their execution |
 | ZTE | ADWs are the execution mechanism for ZTE — event-triggered ADWs are Phase 2 |
 | Leverage Point 10 | ADWs ARE leverage point 10 (workflow automation) |
 
-## Pipeline Executor
-
-The pipeline executor (`lib/pipeline_executor.py`) is the runtime that executes workflow YAMLs.
-
-### Usage
+## Execution Entry Points
 
 ```bash
-# Via skill
-/run-pipeline feature my-feature
+# Consumer SDD lane (creates .cognitive-os/workflows/sdd/ on demand)
+cos sdd
 
-# Direct CLI
-python3 -m lib.pipeline_executor --workflow .cognitive-os/workflows/feature-pipeline.yaml --change my-feature
+# Batch runner — one or many changes, all phases or a single phase
+python3 packages/agent-lifecycle/lib/batch_runner.py --help
+
+# In-session: skill-driven phases
+# /sdd-apply, /sdd-verify (see skills/ and CATALOG.md)
 ```
 
-### State Management
-Pipeline state is persisted to `.cognitive-os/pipeline-state/{change}.json` after every phase completion. Use `--resume` to continue from the last completed phase.
+State for the consumer lane lives at `.cognitive-os/workflows/sdd/state.json`;
+the in-repo DAG persists resume state per change via `sdd_resume.py`.

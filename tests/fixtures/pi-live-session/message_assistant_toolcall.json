@@ -1,0 +1,28 @@
+{
+  "type": "message",
+  "id": "019eb3f7-3100-7000-8000-000000000002",
+  "parentId": "019eb3f7-3001-7000-8000-000000000001",
+  "timestamp": "2026-06-11T00:01:56.365Z",
+  "message": {
+    "role": "assistant",
+    "content": [
+      { "type": "thinking", "thinking": "I should read the parser first.", "thinkingSignature": "sig-001" },
+      { "type": "text", "text": "Reading the parser before editing." },
+      { "type": "toolCall", "id": "call_abc123", "name": "read", "arguments": { "path": "src/parser.py" } }
+    ],
+    "api": "anthropic-messages",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "usage": {
+      "input": 1473,
+      "output": 224,
+      "cacheRead": 0,
+      "cacheWrite": 0,
+      "totalTokens": 1697,
+      "cost": { "input": 0.001473, "output": 0.00112, "cacheRead": 0, "cacheWrite": 0, "total": 0.002593 }
+    },
+    "stopReason": "toolUse",
+    "timestamp": "2026-06-11T00:01:56.365Z",
+    "responseId": "resp_xyz789"
+  }
+}

@@ -29,6 +29,10 @@ const (
 
 	// ProviderDevin represents Devin (Codeium) hook payloads.
 	ProviderDevin Provider = "devin"
+
+	// ProviderPi represents pi (@earendil-works/pi-coding-agent) hook payloads,
+	// emitted by the cos-bridge extension (ADR-336, Vector D).
+	ProviderPi Provider = "pi"
 )
 
 // CanonicalEvent is the normalized, provider-agnostic hook event name.

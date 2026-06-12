@@ -35,6 +35,7 @@ class HarnessName(str, Enum):
     BARE_CLI = "bare_cli"
     OPENCODE = "opencode"
     AIDER = "aider"
+    PI = "pi"
     CURSOR = "cursor"
     CONTINUE = "continue"
     UNKNOWN = "unknown"
